@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -6,7 +7,10 @@ import { cloneStarterResume } from "./defaultResume";
 import { normalizeResumeData } from "./resumeData";
 import type { ResumeData, ResumeListItem, ResumeVersion } from "./types";
 
-const dbPath = join(process.cwd(), "data", "resume-editor.sqlite");
+const dbPath =
+  process.env.VERCEL === "1"
+    ? join(tmpdir(), "resume-editor.sqlite")
+    : join(process.cwd(), "data", "resume-editor.sqlite");
 
 let database: DatabaseSync | null = null;
 
