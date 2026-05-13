@@ -2,16 +2,13 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
+import { cloneStarterResume } from "@/lib/defaultResume";
+import { buildDocx } from "@/lib/docx";
 import { normalizeResumeData } from "@/lib/resumeData";
 import type { EducationItem, ResumeData, ResumeItem, ResumeListItem, ResumeVersion } from "@/lib/types";
 
-type ApiListResponse = {
-  versions: ResumeListItem[];
-};
-
-type ApiVersionResponse = {
-  version: ResumeVersion;
-};
+const STORAGE_KEY = "ats-resume-editor-versions";
+const NEXT_ID_KEY = "ats-resume-editor-next-id";
 
 const blankExperience = (): ResumeItem => ({
   id: makeId("item"),
@@ -69,7 +66,7 @@ export function ResumeEditor() {
   const actionLockRef = useRef(false);
   const lastAddAtRef = useRef(0);
 
-  const canDownload = Boolean(current?.id);
+  const canDownload = Boolean(data);
 
   useEffect(() => {
     void loadVersions();
@@ -87,43 +84,48 @@ export function ResumeEditor() {
   }, [theme]);
 
   async function loadVersions(selectId?: number) {
-    const response = await fetch("/api/resumes", { cache: "no-store" });
-    const payload = (await response.json()) as ApiListResponse;
-    setVersions(payload.versions);
-    const id = selectId ?? payload.versions[0]?.id;
-    if (id) await loadVersion(id);
+    const storedVersions = ensureLocalVersions();
+    setVersions(toListItems(storedVersions));
+    const id = selectId ?? storedVersions[0]?.id;
+    if (id) loadVersion(id, storedVersions);
   }
 
-  async function loadVersion(id: number) {
+  function loadVersion(id: number, sourceVersions = readVersions()) {
     setStatus("Loading version");
-    const response = await fetch(`/api/resumes/${id}`, { cache: "no-store" });
-    const payload = (await response.json()) as ApiVersionResponse;
-    setCurrent(payload.version);
-    setProfileName(payload.version.profileName);
-    setTargetRole(payload.version.targetRole);
-    setVersionName(payload.version.name);
-    setData(normalizeResumeData(payload.version.data));
+    const version = sourceVersions.find((item) => item.id === id);
+    if (!version) {
+      setStatus("Version not found");
+      return;
+    }
+    setCurrent(version);
+    setProfileName(version.profileName);
+    setTargetRole(version.targetRole);
+    setVersionName(version.name);
+    setData(normalizeResumeData(version.data));
     setStatus("Ready");
   }
 
-  async function createBlank(profile: string, role: string, name: string, sourceData?: ResumeData) {
+  function createBlank(profile: string, role: string, name: string, sourceData?: ResumeData) {
     if (actionLockRef.current) return;
     actionLockRef.current = true;
     setIsWorking(true);
     try {
-      setStatus("Creating version");
-      const response = await fetch("/api/resumes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileName: profile,
-          targetRole: role,
-          name,
-          data: sourceData,
-        }),
-      });
-      const payload = (await response.json()) as ApiVersionResponse;
-      await loadVersions(payload.version.id);
+      const versions = readVersions();
+      const now = timestamp();
+      const version: ResumeVersion = {
+        id: nextId(),
+        profileId: 0,
+        profileName: profile,
+        targetRole: role,
+        name,
+        data: normalizeResumeData(sourceData ?? cloneStarterResume(role)),
+        createdAt: now,
+        updatedAt: now,
+      };
+      const nextVersions = [version, ...versions];
+      writeVersions(nextVersions);
+      setVersions(toListItems(nextVersions));
+      loadVersion(version.id, nextVersions);
       setStatus("Created");
     } catch {
       setStatus("Create failed");
@@ -145,47 +147,36 @@ export function ResumeEditor() {
       minute: "2-digit",
     });
     const nextName = `Resume Version ${stamp}`;
-    await createBlank(profileName || "General", targetRole || "General", nextName, data ?? undefined);
+    createBlank(profileName || "General", targetRole || "General", nextName, data ?? undefined);
   }
 
-  async function saveVersion() {
+  function saveVersion() {
     if (!data || actionLockRef.current) return null;
     actionLockRef.current = true;
     setIsWorking(true);
     try {
       setStatus("Saving");
-      if (!current) {
-        const response = await fetch("/api/resumes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profileName,
-            targetRole,
-            name: versionName,
-            data,
-          }),
-        });
-        const payload = (await response.json()) as ApiVersionResponse;
-        await loadVersions(payload.version.id);
-        setStatus("Saved");
-        return payload.version;
-      }
-
-      const response = await fetch(`/api/resumes/${current.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileName,
-          targetRole,
-          name: versionName,
-          data,
-        }),
-      });
-      const payload = (await response.json()) as ApiVersionResponse;
-      setCurrent(payload.version);
-      await loadVersions(payload.version.id);
+      const versions = readVersions();
+      const now = timestamp();
+      const version: ResumeVersion = {
+        id: current?.id ?? nextId(),
+        profileId: current?.profileId ?? 0,
+        profileName,
+        targetRole,
+        name: versionName,
+        data: normalizeResumeData(data),
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+      };
+      const exists = versions.some((item) => item.id === version.id);
+      const nextVersions = exists
+        ? versions.map((item) => (item.id === version.id ? version : item))
+        : [version, ...versions];
+      writeVersions(nextVersions);
+      setCurrent(version);
+      setVersions(toListItems(nextVersions));
       setStatus("Saved");
-      return payload.version;
+      return version;
     } catch {
       setStatus("Save failed");
       return null;
@@ -195,7 +186,7 @@ export function ResumeEditor() {
     }
   }
 
-  async function deleteCurrent() {
+  function deleteCurrent() {
     if (!current || actionLockRef.current) return;
     const confirmed = window.confirm(`Delete "${current.name}"?`);
     if (!confirmed) return;
@@ -203,27 +194,14 @@ export function ResumeEditor() {
     setIsWorking(true);
     try {
       setStatus("Deleting");
-      await fetch(`/api/resumes/${current.id}`, { method: "DELETE" });
-      const response = await fetch("/api/resumes", { cache: "no-store" });
-      const payload = (await response.json()) as ApiListResponse;
-      const nextVersion = payload.versions.find((version) => version.id !== current.id) ?? payload.versions[0];
+      let nextVersions = readVersions().filter((version) => version.id !== current.id);
 
-      if (nextVersion) {
-        setVersions(payload.versions);
-        await loadVersion(nextVersion.id);
-      } else {
-        const createResponse = await fetch("/api/resumes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profileName: "General",
-            targetRole: "General",
-            name: "General Base",
-          }),
-        });
-        const createPayload = (await createResponse.json()) as ApiVersionResponse;
-        await loadVersions(createPayload.version.id);
+      if (nextVersions.length === 0) {
+        nextVersions = makeSeedVersions();
       }
+      writeVersions(nextVersions);
+      setVersions(toListItems(nextVersions));
+      loadVersion(nextVersions[0].id, nextVersions);
       setStatus("Deleted");
     } catch {
       setStatus("Delete failed");
@@ -234,14 +212,21 @@ export function ResumeEditor() {
   }
 
   async function downloadDocx() {
-    const saved = await saveVersion();
+    const saved = saveVersion();
     const id = saved?.id ?? current?.id;
-    if (!id) return;
-    window.location.href = `/api/resumes/${id}/docx`;
+    const version = readVersions().find((item) => item.id === id) ?? saved;
+    if (!version) return;
+    const docx = buildDocx(version.data);
+    downloadBlob(
+      new Blob([docx], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+      `${safeName(version.name)}.docx`,
+    );
   }
 
   async function printPdf() {
-    await saveVersion();
+    saveVersion();
     window.print();
   }
 
@@ -279,7 +264,7 @@ export function ResumeEditor() {
       setStatus("Import failed");
       return;
     }
-    await createBlank(
+    createBlank(
       imported.profileName || "Imported",
       imported.targetRole || imported.profileName || "Imported",
       imported.name ? `${imported.name} Import` : "Imported Version",
@@ -303,7 +288,7 @@ export function ResumeEditor() {
     <main className="app-shell">
       <aside className="version-rail no-print" aria-label="Resume versions">
         <div className="brand-block">
-          <p className="eyebrow">Local SQLite</p>
+          <p className="eyebrow">Local Browser</p>
           <h1>Resume Editor</h1>
           <div className="brand-status">
             <span>{status}</span>
@@ -796,4 +781,76 @@ function move<T>(items: T[], from: number, to: number) {
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
+}
+
+function makeSeedVersions(): ResumeVersion[] {
+  const seeds = [
+    { profileName: "General", targetRole: "General", name: "General Base" },
+    { profileName: "Sales CS", targetRole: "Sales / Customer Success", name: "Sales CS Base" },
+    { profileName: "Product Ops", targetRole: "Product / Operations", name: "Product Ops Base" },
+    { profileName: "Tech AI Builder", targetRole: "Tech / AI Builder", name: "Tech AI Builder Base" },
+  ];
+
+  const now = timestamp();
+  return seeds.map((seed, index) => ({
+    id: index + 1,
+    profileId: index + 1,
+    profileName: seed.profileName,
+    targetRole: seed.targetRole,
+    name: seed.name,
+    data: cloneStarterResume(seed.targetRole),
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
+function ensureLocalVersions() {
+  const versions = readVersions();
+  if (versions.length > 0) return versions;
+  const seedVersions = makeSeedVersions();
+  writeVersions(seedVersions);
+  localStorage.setItem(NEXT_ID_KEY, String(seedVersions.length + 1));
+  return seedVersions;
+}
+
+function readVersions(): ResumeVersion[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const versions = JSON.parse(raw) as ResumeVersion[];
+    return versions.map((version) => ({
+      ...version,
+      data: normalizeResumeData(version.data),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function writeVersions(versions: ResumeVersion[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(versions));
+}
+
+function toListItems(versions: ResumeVersion[]): ResumeListItem[] {
+  return versions.map((version) => ({
+    id: version.id,
+    profileId: version.profileId,
+    profileName: version.profileName,
+    targetRole: version.targetRole,
+    name: version.name,
+    previewName: version.data.contact.fullName,
+    createdAt: version.createdAt,
+    updatedAt: version.updatedAt,
+  }));
+}
+
+function nextId() {
+  const current = Number(localStorage.getItem(NEXT_ID_KEY) ?? "1");
+  localStorage.setItem(NEXT_ID_KEY, String(current + 1));
+  return current;
+}
+
+function timestamp() {
+  return new Date().toISOString();
 }
