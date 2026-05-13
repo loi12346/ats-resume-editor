@@ -1,0 +1,7 @@
+data/
+.next/
+node_modules/
+*.log
+*.docx
+*.pdf
+*.tsbuildinfo
