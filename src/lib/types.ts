@@ -46,6 +46,7 @@ export type ResumeVersion = {
   profileId: number;
   profileName: string;
   targetRole: string;
+  applicationCompany?: string;
   name: string;
   data: ResumeData;
   createdAt: string;

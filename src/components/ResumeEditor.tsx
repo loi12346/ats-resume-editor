@@ -52,14 +52,17 @@ function safeName(value: string) {
 }
 
 export function ResumeEditor() {
+  const [storedVersions, setStoredVersions] = useState<ResumeVersion[]>([]);
   const [versions, setVersions] = useState<ResumeListItem[]>([]);
   const [current, setCurrent] = useState<ResumeVersion | null>(null);
   const [profileName, setProfileName] = useState("General");
   const [targetRole, setTargetRole] = useState("General");
+  const [applicationCompany, setApplicationCompany] = useState("");
   const [versionName, setVersionName] = useState("General Base");
   const [data, setData] = useState<ResumeData | null>(null);
   const [status, setStatus] = useState("Loading");
-  const [activeTab, setActiveTab] = useState<"content" | "notes">("content");
+  const [activeTab, setActiveTab] = useState<"content" | "notes" | "aiPrompt">("content");
+  const [aiVersionId, setAiVersionId] = useState<number | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const importRef = useRef<HTMLInputElement>(null);
@@ -85,6 +88,7 @@ export function ResumeEditor() {
 
   async function loadVersions(selectId?: number) {
     const storedVersions = ensureLocalVersions();
+    setStoredVersions(storedVersions);
     setVersions(toListItems(storedVersions));
     const id = selectId ?? storedVersions[0]?.id;
     if (id) loadVersion(id, storedVersions);
@@ -92,6 +96,7 @@ export function ResumeEditor() {
 
   function loadVersion(id: number, sourceVersions = readVersions()) {
     setStatus("Loading version");
+    setStoredVersions(sourceVersions);
     const version = sourceVersions.find((item) => item.id === id);
     if (!version) {
       setStatus("Version not found");
@@ -100,12 +105,14 @@ export function ResumeEditor() {
     setCurrent(version);
     setProfileName(version.profileName);
     setTargetRole(version.targetRole);
+    setApplicationCompany(version.applicationCompany ?? "");
     setVersionName(version.name);
     setData(normalizeResumeData(version.data));
+    setAiVersionId(version.id);
     setStatus("Ready");
   }
 
-  function createBlank(profile: string, role: string, name: string, sourceData?: ResumeData) {
+  function createBlank(profile: string, role: string, name: string, sourceData?: ResumeData, company = "") {
     if (actionLockRef.current) return;
     actionLockRef.current = true;
     setIsWorking(true);
@@ -117,6 +124,7 @@ export function ResumeEditor() {
         profileId: 0,
         profileName: profile,
         targetRole: role,
+        applicationCompany: company,
         name,
         data: normalizeResumeData(sourceData ?? cloneStarterResume(role)),
         createdAt: now,
@@ -124,6 +132,7 @@ export function ResumeEditor() {
       };
       const nextVersions = [version, ...versions];
       writeVersions(nextVersions);
+      setStoredVersions(nextVersions);
       setVersions(toListItems(nextVersions));
       loadVersion(version.id, nextVersions);
       setStatus("Created");
@@ -147,7 +156,7 @@ export function ResumeEditor() {
       minute: "2-digit",
     });
     const nextName = `Resume Version ${stamp}`;
-    createBlank(profileName || "General", targetRole || "General", nextName, data ?? undefined);
+    createBlank(profileName || "General", targetRole || "General", nextName, data ?? undefined, applicationCompany);
   }
 
   function saveVersion() {
@@ -163,6 +172,7 @@ export function ResumeEditor() {
         profileId: current?.profileId ?? 0,
         profileName,
         targetRole,
+        applicationCompany,
         name: versionName,
         data: normalizeResumeData(data),
         createdAt: current?.createdAt ?? now,
@@ -174,6 +184,7 @@ export function ResumeEditor() {
         : [version, ...versions];
       writeVersions(nextVersions);
       setCurrent(version);
+      setStoredVersions(nextVersions);
       setVersions(toListItems(nextVersions));
       setStatus("Saved");
       return version;
@@ -200,6 +211,7 @@ export function ResumeEditor() {
         nextVersions = makeSeedVersions();
       }
       writeVersions(nextVersions);
+      setStoredVersions(nextVersions);
       setVersions(toListItems(nextVersions));
       loadVersion(nextVersions[0].id, nextVersions);
       setStatus("Deleted");
@@ -238,6 +250,7 @@ export function ResumeEditor() {
           {
             profileName,
             targetRole,
+            applicationCompany,
             name: versionName,
             data,
           },
@@ -257,6 +270,7 @@ export function ResumeEditor() {
     const imported = JSON.parse(text) as {
       profileName?: string;
       targetRole?: string;
+      applicationCompany?: string;
       name?: string;
       data?: ResumeData;
     };
@@ -269,9 +283,32 @@ export function ResumeEditor() {
       imported.targetRole || imported.profileName || "Imported",
       imported.name ? `${imported.name} Import` : "Imported Version",
       imported.data,
+      imported.applicationCompany || "",
     );
     event.target.value = "";
   }
+
+  function exportCsv() {
+    const saved = saveVersion();
+    const id = saved?.id ?? current?.id;
+    const version = readVersions().find((item) => item.id === id) ?? saved;
+    if (!version) return;
+    const csv = buildResumeCsv(version);
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${safeName(version.name)}.csv`);
+  }
+
+  const promptVersions = storedVersions.map((version) =>
+    current?.id === version.id && data
+      ? {
+          ...version,
+          profileName,
+          targetRole,
+          applicationCompany,
+          name: versionName,
+          data: normalizeResumeData(data),
+        }
+      : version,
+  );
 
   if (!data) {
     return (
@@ -335,6 +372,10 @@ export function ResumeEditor() {
               <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} />
             </label>
             <label>
+              Application company
+              <input value={applicationCompany} onChange={(event) => setApplicationCompany(event.target.value)} />
+            </label>
+            <label>
               Version
               <input value={versionName} onChange={(event) => setVersionName(event.target.value)} />
             </label>
@@ -344,7 +385,7 @@ export function ResumeEditor() {
               Save
             </button>
             <button
-              onClick={() => createBlank(profileName, targetRole, `${versionName} Copy`, data)}
+              onClick={() => createBlank(profileName, targetRole, `${versionName} Copy`, data, applicationCompany)}
               disabled={isWorking}
               title="Copy version"
             >
@@ -358,6 +399,9 @@ export function ResumeEditor() {
             </button>
             <button onClick={downloadDocx} disabled={!canDownload || isWorking} title="Download DOCX">
               DOCX
+            </button>
+            <button onClick={exportCsv} disabled={!canDownload || isWorking} title="Export sheet-ready CSV">
+              CSV
             </button>
             <button onClick={exportJson} disabled={isWorking} title="Export backup JSON">
               JSON
@@ -378,12 +422,24 @@ export function ResumeEditor() {
               <button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>
                 Raw Notes
               </button>
+              <button className={activeTab === "aiPrompt" ? "active" : ""} onClick={() => setActiveTab("aiPrompt")}>
+                AI Prompt
+              </button>
             </div>
 
             {activeTab === "content" ? (
               <ContentEditor data={data} setData={setData} />
-            ) : (
+            ) : activeTab === "notes" ? (
               <RawNotesEditor data={data} setData={setData} />
+            ) : (
+              <AiPromptPanel
+                versions={promptVersions}
+                selectedVersionId={aiVersionId ?? current?.id ?? versions[0]?.id ?? null}
+                onSelectVersion={setAiVersionId}
+                fallbackRole={targetRole}
+                fallbackCompany={applicationCompany}
+                onCopied={() => setStatus("Prompt copied")}
+              />
             )}
           </section>
 
@@ -472,6 +528,120 @@ function RawNotesEditor({
         notesOnly
       />
     </div>
+  );
+}
+
+function AiPromptPanel({
+  versions,
+  selectedVersionId,
+  onSelectVersion,
+  fallbackRole,
+  fallbackCompany,
+  onCopied,
+}: {
+  versions: ResumeVersion[];
+  selectedVersionId: number | null;
+  onSelectVersion: (id: number) => void;
+  fallbackRole: string;
+  fallbackCompany: string;
+  onCopied: () => void;
+}) {
+  const selectedVersion = versions.find((version) => version.id === selectedVersionId) ?? versions[0] ?? null;
+  const [promptRole, setPromptRole] = useState(fallbackRole);
+  const [promptCompany, setPromptCompany] = useState(fallbackCompany);
+  const [jobDescription, setJobDescription] = useState("");
+  const [performanceReview, setPerformanceReview] = useState("");
+
+  useEffect(() => {
+    setPromptRole(selectedVersion?.targetRole || fallbackRole);
+    setPromptCompany(selectedVersion?.applicationCompany || fallbackCompany);
+  }, [
+    fallbackCompany,
+    fallbackRole,
+    selectedVersion?.applicationCompany,
+    selectedVersion?.id,
+    selectedVersion?.targetRole,
+  ]);
+
+  const prompt = selectedVersion
+    ? buildAiPrompt({
+        version: selectedVersion,
+        targetRole: promptRole,
+        applicationCompany: promptCompany,
+        jobDescription,
+        performanceReview,
+      })
+    : "";
+
+  async function copyPrompt() {
+    if (!prompt) return;
+    await navigator.clipboard.writeText(prompt);
+    onCopied();
+  }
+
+  return (
+    <section className="form-section ai-prompt-panel">
+      <div className="section-head">
+        <h2>AI Prompt</h2>
+        <button onClick={copyPrompt} disabled={!prompt}>
+          Copy Prompt
+        </button>
+      </div>
+
+      <div className="field-grid">
+        <label>
+          Resume version
+          <select
+            value={selectedVersion?.id ?? ""}
+            onChange={(event) => onSelectVersion(Number(event.target.value))}
+          >
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Target role
+          <input value={promptRole} onChange={(event) => setPromptRole(event.target.value)} />
+        </label>
+        <label>
+          Application company
+          <input value={promptCompany} onChange={(event) => setPromptCompany(event.target.value)} />
+        </label>
+      </div>
+
+      <label>
+        Job description
+        <textarea
+          rows={8}
+          value={jobDescription}
+          onChange={(event) => setJobDescription(event.target.value)}
+          placeholder="Paste the job description here before copying the prompt."
+        />
+      </label>
+
+      <label>
+        Historical performance review
+        <textarea
+          rows={7}
+          value={performanceReview}
+          onChange={(event) => setPerformanceReview(event.target.value)}
+          placeholder="Paste past performance reviews, manager feedback, KPI notes, wins, or promotion evidence here."
+        />
+      </label>
+
+      <div className="copy-box" aria-label="Generated AI prompt">
+        <div className="copy-box-head">
+          <span>resume-tailor-prompt.md</span>
+          <button onClick={copyPrompt} disabled={!prompt}>
+            Copy
+          </button>
+        </div>
+        <pre>{prompt || "Select a resume version to generate the prompt."}</pre>
+      </div>
+    </section>
   );
 }
 
@@ -776,6 +946,192 @@ function parseCommaList(value: string) {
     .filter(Boolean);
 }
 
+function buildAiPrompt({
+  version,
+  targetRole,
+  applicationCompany,
+  jobDescription,
+  performanceReview,
+}: {
+  version: ResumeVersion;
+  targetRole: string;
+  applicationCompany: string;
+  jobDescription: string;
+  performanceReview: string;
+}) {
+  const data = normalizeResumeData(version.data);
+  const resumePayload = {
+    versionName: version.name,
+    profileName: version.profileName,
+    targetRole: targetRole || version.targetRole,
+    applicationCompany: applicationCompany || version.applicationCompany || "",
+    contact: data.contact,
+    summary: data.summary,
+    hardSkills: data.hardSkills,
+    softSkills: data.softSkills,
+    experience: data.experience.map(serializableResumeItem),
+    projects: data.projects.map(serializableResumeItem),
+    education: data.education,
+  };
+
+  return `# Resume Tailoring Prompt
+
+You are an expert ATS resume editor. Rewrite my resume content for the target role and company below.
+
+## Target Application
+- Role: ${targetRole || version.targetRole || "Not specified"}
+- Company: ${applicationCompany || version.applicationCompany || "Not specified"}
+
+## Job Description
+${jobDescription.trim() || "[Paste job description here]"}
+
+## Historical Performance Review / Evidence
+${performanceReview.trim() || "[Paste historical performance reviews, manager feedback, KPI notes, awards, wins, or promotion evidence here]"}
+
+## Current Resume Version
+\`\`\`json
+${JSON.stringify(resumePayload, null, 2)}
+\`\`\`
+
+## Instructions
+- Keep everything truthful and based only on the provided resume evidence.
+- Use the historical performance review as supporting evidence for stronger impact bullets when it is relevant.
+- Prioritize ATS clarity, direct business impact, and keywords from the job description.
+- Do not invent employers, degrees, dates, metrics, certifications, or tools.
+- If a stronger metric is needed but missing, put it under Missing Evidence / Risks.
+- Make the result copy-ready for my resume editor.
+
+## Required Output Format
+
+### Summary
+[2-3 sentence tailored summary]
+
+### Skills
+Hard skills: [comma-separated]
+Soft skills: [comma-separated]
+
+### Experience
+#### [Company / Organization] | [Role]
+Bullet 1: [copy-ready bullet]
+Bullet 2: [copy-ready bullet]
+Bullet 3: [copy-ready bullet]
+
+### Projects
+#### [Project Name] | [Role]
+Bullet 1: [copy-ready bullet]
+Bullet 2: [copy-ready bullet]
+Bullet 3: [copy-ready bullet]
+
+### Keyword Match
+[keywords from the JD that are already supported by my resume evidence]
+
+### Missing Evidence / Risks
+[important JD requirements that my resume does not prove yet]`;
+}
+
+function serializableResumeItem(item: ResumeItem) {
+  return {
+    organization: item.organization,
+    role: item.role,
+    location: item.location,
+    start: item.start,
+    end: item.end,
+    keywords: item.keywords,
+    impact: item.impact,
+    originalDescription: item.originalDescription,
+    bullets: item.bullets.filter((bullet) => bullet.trim()),
+  };
+}
+
+function buildResumeCsv(version: ResumeVersion) {
+  const data = normalizeResumeData(version.data);
+  const rows = [
+    [
+      "version_name",
+      "target_role",
+      "application_company",
+      "section",
+      "item_title",
+      "role_or_detail",
+      "date_range",
+      "location",
+      "keywords",
+      "bullets_or_content",
+    ],
+    [
+      version.name,
+      version.targetRole,
+      version.applicationCompany ?? "",
+      "summary",
+      data.contact.fullName,
+      data.contact.headline,
+      "",
+      data.contact.location,
+      "",
+      data.summary,
+    ],
+    [
+      version.name,
+      version.targetRole,
+      version.applicationCompany ?? "",
+      "skills",
+      "Hard skills",
+      "",
+      "",
+      "",
+      "",
+      data.hardSkills.join(", "),
+    ],
+    [
+      version.name,
+      version.targetRole,
+      version.applicationCompany ?? "",
+      "skills",
+      "Soft skills",
+      "",
+      "",
+      "",
+      "",
+      data.softSkills.join(", "),
+    ],
+    ...data.experience.map((item) => csvResumeItem(version, "experience", item)),
+    ...data.projects.map((item) => csvResumeItem(version, "projects", item)),
+    ...data.education.map((item) => [
+      version.name,
+      version.targetRole,
+      version.applicationCompany ?? "",
+      "education",
+      item.school,
+      item.degree,
+      [item.start, item.end].filter(Boolean).join(" - "),
+      item.location,
+      "",
+      item.details,
+    ]),
+  ];
+
+  return `\ufeff${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+}
+
+function csvResumeItem(version: ResumeVersion, section: string, item: ResumeItem) {
+  return [
+    version.name,
+    version.targetRole,
+    version.applicationCompany ?? "",
+    section,
+    item.organization,
+    item.role,
+    [item.start, item.end].filter(Boolean).join(" - "),
+    item.location,
+    item.keywords,
+    [...item.bullets.filter((bullet) => bullet.trim()), item.impact].filter(Boolean).join("\n"),
+  ];
+}
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
 function move<T>(items: T[], from: number, to: number) {
   const next = [...items];
   const [item] = next.splice(from, 1);
@@ -797,6 +1153,7 @@ function makeSeedVersions(): ResumeVersion[] {
     profileId: index + 1,
     profileName: seed.profileName,
     targetRole: seed.targetRole,
+    applicationCompany: "",
     name: seed.name,
     data: cloneStarterResume(seed.targetRole),
     createdAt: now,
@@ -821,6 +1178,7 @@ function readVersions(): ResumeVersion[] {
     const versions = JSON.parse(raw) as ResumeVersion[];
     return versions.map((version) => ({
       ...version,
+      applicationCompany: version.applicationCompany ?? "",
       data: normalizeResumeData(version.data),
     }));
   } catch {
@@ -838,6 +1196,7 @@ function toListItems(versions: ResumeVersion[]): ResumeListItem[] {
     profileId: version.profileId,
     profileName: version.profileName,
     targetRole: version.targetRole,
+    applicationCompany: version.applicationCompany ?? "",
     name: version.name,
     previewName: version.data.contact.fullName,
     createdAt: version.createdAt,

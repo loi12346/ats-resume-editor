@@ -90,7 +90,7 @@ function resumeXml(data: ResumeData) {
   <w:body>
     ${parts.join("\n")}
     <w:sectPr>
-      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgSz w:w="11906" w:h="16838"/>
       <w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360" w:gutter="0"/>
     </w:sectPr>
   </w:body>

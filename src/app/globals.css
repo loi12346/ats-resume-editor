@@ -54,7 +54,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -77,7 +78,8 @@ button:disabled {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid var(--line);
   background: var(--field-bg);
@@ -91,7 +93,8 @@ textarea {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(34, 108, 95, 0.12);
 }
@@ -250,7 +253,7 @@ label {
 
 .identity-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 12px;
 }
 
@@ -334,6 +337,48 @@ label {
   gap: 12px;
 }
 
+.ai-prompt-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.copy-box {
+  border: 1px solid var(--line);
+  background: #101418;
+  color: #f5f7f7;
+  overflow: hidden;
+}
+
+.copy-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 8px 10px;
+  color: #d6dddd;
+  font-size: 12px;
+}
+
+.copy-box-head button {
+  min-height: 30px;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: #1f272d;
+  color: #fff;
+}
+
+.copy-box pre {
+  max-height: 560px;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  color: #f5f7f7;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .item-list {
   display: grid;
   gap: 12px;
@@ -363,12 +408,12 @@ label {
 }
 
 .resume-page {
-  width: min(100%, 816px);
-  min-height: 1056px;
+  width: min(100%, 210mm);
+  min-height: 297mm;
   margin: 0 auto;
   background: var(--resume-bg);
   color: var(--resume-ink);
-  padding: 52px 58px;
+  padding: 13mm 15mm;
   box-shadow: var(--shadow);
   font-family: Arial, Helvetica, sans-serif;
   font-size: 13px;
@@ -537,7 +582,7 @@ label {
 }
 
 @page {
-  size: Letter;
+  size: A4;
   margin: 0.45in;
 }
 
