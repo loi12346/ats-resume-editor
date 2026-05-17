@@ -253,7 +253,7 @@ export function ResumeEditor() {
     if (!file) return;
     try {
       const text = await file.text();
-      const imported = parseImportedJson(JSON.parse(text));
+      const imported = parseImportedFile(text, file.name);
       if (!imported) {
         setStatus("Import failed");
         return;
@@ -395,7 +395,7 @@ export function ResumeEditor() {
             <button onClick={() => importRef.current?.click()} disabled={isWorking} title="Import backup JSON">
               Import
             </button>
-            <input ref={importRef} hidden type="file" accept="application/json" onChange={importJson} />
+            <input ref={importRef} hidden type="file" accept="application/json,text/csv,.json,.csv" onChange={importJson} />
           </div>
         </header>
 
@@ -620,7 +620,7 @@ function AiPromptPanel({
 
       <div className="copy-box" aria-label="Generated AI prompt">
         <div className="copy-box-head">
-          <span>resume-tailor-prompt.md</span>
+          <span>resume-tailor-skill-prompt.md</span>
           <button onClick={copyPrompt} disabled={!prompt}>
             Copy
           </button>
@@ -991,9 +991,9 @@ function buildAiPrompt({
     education: data.education,
   };
 
-  return `# Resume Tailoring Prompt
+  return `# Resume Tailoring Skill Prompt
 
-You are an expert ATS resume editor. Rewrite my resume content for the target role and company below.
+You are an expert ATS resume editor running a resume-tailoring skill. Your main job is to judge the CV against the target role and company, identify gaps, ask for missing evidence, and only generate the final import-ready resume JSON after the human explicitly approves generation.
 
 ## Target Application
 - Role: ${targetRole || version.targetRole || "Not specified"}
@@ -1010,40 +1010,102 @@ ${performanceReview.trim() || "[Paste historical performance reviews, manager fe
 ${JSON.stringify(resumePayload, null, 2)}
 \`\`\`
 
-## Instructions
+## Skill Workflow
+- Start in planning mode. Do not generate the final JSON on the first response unless the user explicitly says "generate", "final", "可以 generate", or "可以生成".
+- In planning mode, judge the CV against the JD and return:
+  - Fit verdict: high / medium / low.
+  - Matched evidence: JD requirements that are already supported by the resume.
+  - Gap analysis: missing or weak evidence that may hurt ATS/recruiter fit.
+  - Suggested positioning: which summary, skills, experience bullets, and projects should change.
+  - Human questions: concise questions that would improve the final resume, especially missing metrics, tools, scope, stakeholders, and outcomes.
+- Keep iterating with the human. Use new answers as additional evidence, but never invent unsupported facts.
+- Only when the human says the equivalent of "okay, generate" should you produce the final answer.
+- The final answer must be the clean resume JSON schema below and nothing else. It must be directly importable into my resume editor.
+
+## Guardrails
 - Keep everything truthful and based only on the provided resume evidence.
 - Use the historical performance review as supporting evidence for stronger impact bullets when it is relevant.
 - Prioritize ATS clarity, direct business impact, and keywords from the job description.
 - Do not invent employers, degrees, dates, metrics, certifications, or tools.
-- If a stronger metric is needed but missing, put it under Missing Evidence / Risks.
+- If a stronger metric is needed but missing, ask the human first or keep the bullet conservative.
 - Make the result copy-ready for my resume editor.
+- Planning responses can be concise markdown.
+- Final generation response must be JSON only. Do not wrap it in markdown. Do not add commentary before or after the JSON.
+- Final JSON must use the same clean backup/import format as the resume editor.
 
-## Required Output Format
-
-### Summary
-[2-3 sentence tailored summary]
-
-### Skills
-Hard skills: [comma-separated]
-Soft skills: [comma-separated]
-
-### Experience
-#### [Company / Organization] | [Role]
-Bullet 1: [copy-ready bullet]
-Bullet 2: [copy-ready bullet]
-Bullet 3: [copy-ready bullet]
-
-### Projects
-#### [Project Name] | [Role]
-Bullet 1: [copy-ready bullet]
-Bullet 2: [copy-ready bullet]
-Bullet 3: [copy-ready bullet]
-
-### Keyword Match
-[keywords from the JD that are already supported by my resume evidence]
-
-### Missing Evidence / Risks
-[important JD requirements that my resume does not prove yet]`;
+## Required JSON Output
+\`\`\`json
+{
+  "versionName": "Targeted resume version name",
+  "profileName": "${version.profileName}",
+  "targetRole": "${targetRole || version.targetRole || ""}",
+  "applicationCompany": "${applicationCompany || version.applicationCompany || ""}",
+  "contact": {
+    "fullName": "Full name",
+    "headline": "Targeted headline",
+    "location": "Location, or empty string if not provided",
+    "email": "Email",
+    "phone": "Phone",
+    "links": "Links, or empty string if not provided"
+  },
+  "summary": "2-3 sentence tailored summary, copy-ready.",
+  "experience": [
+    {
+      "organization": "Company / Organization",
+      "role": "Role title",
+      "location": "City, Country",
+      "start": "MMM YYYY",
+      "end": "MMM YYYY or Present",
+      "keywords": "Comma-separated keywords",
+      "impact": "One concise impact sentence, or empty string.",
+      "bullets": [
+        "Copy-ready bullet 1",
+        "Copy-ready bullet 2",
+        "Copy-ready bullet 3"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "organization": "Project name",
+      "role": "Project role",
+      "location": "Context or platform",
+      "start": "MMM YYYY",
+      "end": "MMM YYYY",
+      "keywords": "Comma-separated keywords",
+      "impact": "One concise impact sentence, or empty string.",
+      "bullets": [
+        "Copy-ready bullet 1",
+        "Copy-ready bullet 2"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "school": "School / University",
+      "degree": "Degree / Certification",
+      "location": "City, Country",
+      "start": "MMM YYYY",
+      "end": "MMM YYYY",
+      "details": [
+        "Cumulative GPA: value.",
+        "Relevant coursework: course 1, course 2."
+      ]
+    }
+  ],
+  "skills": {
+    "hardSkills": [
+      "skill"
+    ],
+    "softSkills": [
+      "skill"
+    ],
+    "languages": [
+      "language"
+    ]
+  }
+}
+\`\`\``;
 }
 
 function serializableResumeItem(item: ResumeItem) {
@@ -1169,6 +1231,15 @@ type ImportedResume = {
   data: ResumeData;
 };
 
+function parseImportedFile(text: string, fileName: string): ImportedResume | null {
+  if (fileName.toLowerCase().endsWith(".csv")) return parseImportedCsv(text);
+  try {
+    return parseImportedJson(JSON.parse(text));
+  } catch {
+    return parseImportedCsv(text);
+  }
+}
+
 function parseImportedJson(value: unknown): ImportedResume | null {
   if (!isRecord(value)) return null;
 
@@ -1222,11 +1293,172 @@ function parseImportedJson(value: unknown): ImportedResume | null {
   };
 }
 
+function parseImportedCsv(text: string): ImportedResume | null {
+  const rows = parseCsv(text.replace(/^\ufeff/, ""));
+  if (rows.length < 2) return null;
+
+  const header = rows[0].map((cell) => cell.trim());
+  const index = (name: string) => header.indexOf(name);
+  const required = [
+    "version_name",
+    "target_role",
+    "application_company",
+    "section",
+    "item_title",
+    "role_or_detail",
+    "date_range",
+    "location",
+    "keywords",
+    "bullets_or_content",
+  ];
+  if (required.some((name) => index(name) === -1)) return null;
+
+  const data: ResumeData = {
+    contact: {
+      fullName: "",
+      headline: "",
+      location: "",
+      email: "",
+      phone: "",
+      links: "",
+    },
+    summary: "",
+    hardSkills: [],
+    softSkills: [],
+    languages: [],
+    experience: [],
+    projects: [],
+    education: [],
+  };
+
+  let versionName = "";
+  let targetRole = "";
+  let applicationCompany = "";
+
+  for (const row of rows.slice(1)) {
+    const cell = (name: string) => row[index(name)] ?? "";
+    const section = cell("section").trim().toLowerCase();
+    versionName ||= cell("version_name");
+    targetRole ||= cell("target_role");
+    applicationCompany ||= cell("application_company");
+
+    if (section === "summary") {
+      data.contact.fullName = cell("item_title");
+      data.contact.headline = cell("role_or_detail");
+      data.contact.location = cell("location");
+      data.summary = cell("bullets_or_content");
+      continue;
+    }
+
+    if (section === "skills") {
+      const title = cell("item_title").trim().toLowerCase();
+      const skills = parseStringList(cell("bullets_or_content"));
+      if (title.includes("hard")) data.hardSkills = skills;
+      if (title.includes("soft")) data.softSkills = skills;
+      if (title.includes("language")) data.languages = skills;
+      continue;
+    }
+
+    if (section === "education") {
+      const [start, end] = splitDateRange(cell("date_range"));
+      data.education.push({
+        id: makeId("edu"),
+        school: cell("item_title"),
+        degree: cell("role_or_detail"),
+        location: cell("location"),
+        start,
+        end,
+        details: cell("bullets_or_content"),
+      });
+      continue;
+    }
+
+    if (section === "experience" || section === "projects") {
+      const [start, end] = splitDateRange(cell("date_range"));
+      const contentLines = splitLines(cell("bullets_or_content"));
+      const item: ResumeItem = {
+        id: makeId("item"),
+        organization: cell("item_title"),
+        role: cell("role_or_detail"),
+        location: cell("location"),
+        start,
+        end,
+        keywords: cell("keywords"),
+        impact: "",
+        originalDescription: "",
+        bullets: contentLines,
+      };
+      if (section === "experience") data.experience.push(item);
+      else data.projects.push(item);
+    }
+  }
+
+  if (!data.contact.fullName && !data.summary && data.experience.length === 0) return null;
+
+  return {
+    profileName: "Imported",
+    targetRole,
+    applicationCompany,
+    name: versionName,
+    data: normalizeResumeData(data),
+  };
+}
+
+function parseCsv(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(cell);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  row.push(cell);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
+function splitDateRange(value: string): [string, string] {
+  const [start = "", ...rest] = value.split(" - ");
+  return [start, rest.join(" - ")];
+}
+
 function isResumeData(value: unknown): value is ResumeData {
   return (
     isRecord(value) &&
     isRecord(value.contact) &&
     typeof value.summary === "string" &&
+    Array.isArray(value.hardSkills) &&
+    Array.isArray(value.softSkills) &&
     Array.isArray(value.experience) &&
     Array.isArray(value.projects) &&
     Array.isArray(value.education)
