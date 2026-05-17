@@ -58,13 +58,13 @@ export function ResumeEditor() {
   const [profileName, setProfileName] = useState("General");
   const [targetRole, setTargetRole] = useState("General");
   const [applicationCompany, setApplicationCompany] = useState("");
-  const [versionName, setVersionName] = useState("General Base");
+  const [versionName, setVersionName] = useState("Untitled Resume");
   const [data, setData] = useState<ResumeData | null>(null);
   const [status, setStatus] = useState("Loading");
   const [activeTab, setActiveTab] = useState<"content" | "notes" | "aiPrompt">("content");
   const [aiVersionId, setAiVersionId] = useState<number | null>(null);
   const [isWorking, setIsWorking] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isRailHidden, setIsRailHidden] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const actionLockRef = useRef(false);
   const lastAddAtRef = useRef(0);
@@ -74,17 +74,6 @@ export function ResumeEditor() {
   useEffect(() => {
     void loadVersions();
   }, []);
-
-  useEffect(() => {
-    const storedTheme = localStorage.getItem("resume-editor-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setTheme(storedTheme === "dark" || (!storedTheme && prefersDark) ? "dark" : "light");
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("resume-editor-theme", theme);
-  }, [theme]);
 
   async function loadVersions(selectId?: number) {
     const storedVersions = ensureLocalVersions();
@@ -205,11 +194,7 @@ export function ResumeEditor() {
     setIsWorking(true);
     try {
       setStatus("Deleting");
-      let nextVersions = readVersions().filter((version) => version.id !== current.id);
-
-      if (nextVersions.length === 0) {
-        nextVersions = makeSeedVersions();
-      }
+      const nextVersions = readVersions().filter((version) => version.id !== current.id);
       writeVersions(nextVersions);
       setStoredVersions(nextVersions);
       setVersions(toListItems(nextVersions));
@@ -322,43 +307,45 @@ export function ResumeEditor() {
   }
 
   return (
-    <main className="app-shell">
-      <aside className="version-rail no-print" aria-label="Resume versions">
-        <div className="brand-block">
-          <p className="eyebrow">Local Browser</p>
-          <h1>Resume Editor</h1>
-          <div className="brand-status">
-            <span>{status}</span>
-            <button
-              className="theme-toggle"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              title="Toggle dark mode"
-            >
-              {theme === "dark" ? "Light" : "Dark"}
-            </button>
+    <main className={isRailHidden ? "app-shell rail-collapsed" : "app-shell"}>
+      <button
+        className={isRailHidden ? "sidebar-toggle collapsed no-print" : "sidebar-toggle no-print"}
+        onClick={() => setIsRailHidden(!isRailHidden)}
+        title={isRailHidden ? "Expand versions" : "Collapse versions"}
+        aria-label={isRailHidden ? "Expand versions" : "Collapse versions"}
+      >
+        {isRailHidden ? ">" : "<"}
+      </button>
+
+      <aside className={isRailHidden ? "version-rail collapsed no-print" : "version-rail no-print"} aria-label="Resume versions">
+          <div className="brand-block">
+            <p className="eyebrow">Local Browser</p>
+            <h1>Resume Editor</h1>
+            <div className="brand-status">
+              <span>{status}</span>
+            </div>
           </div>
-        </div>
 
-        <div className="version-actions">
-            <button onClick={addVersion} disabled={isWorking}>
-              + Add Version
-            </button>
-        </div>
+          <div className="version-actions">
+              <button onClick={addVersion} disabled={isWorking}>
+                + Add Version
+              </button>
+          </div>
 
-        <div className="version-list">
-          {versions.map((item) => (
-            <button
-              className={current?.id === item.id ? "version-row active" : "version-row"}
-              key={item.id}
-              disabled={isWorking}
-              onClick={() => loadVersion(item.id)}
-            >
-              <strong>{item.name}</strong>
-              <span>{item.targetRole}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
+          <div className="version-list">
+            {versions.map((item) => (
+              <button
+                className={current?.id === item.id ? "version-row active" : "version-row"}
+                key={item.id}
+                disabled={isWorking}
+                onClick={() => loadVersion(item.id)}
+              >
+                <strong>{item.name}</strong>
+                <span>{item.targetRole}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
 
       <section className="workspace no-print">
         <header className="toolbar">
@@ -381,7 +368,7 @@ export function ResumeEditor() {
             </label>
           </div>
           <div className="toolbar-actions">
-            <button onClick={saveVersion} disabled={isWorking} title="Save current version">
+            <button className="primary-action" onClick={saveVersion} disabled={isWorking} title="Save current version">
               Save
             </button>
             <button
@@ -391,7 +378,7 @@ export function ResumeEditor() {
             >
               Copy
             </button>
-            <button onClick={deleteCurrent} disabled={isWorking} title="Delete version">
+            <button onClick={deleteCurrent} disabled={!current || isWorking} title="Delete version">
               Delete
             </button>
             <button onClick={printPdf} disabled={isWorking} title="Open print dialog for PDF">
@@ -794,7 +781,11 @@ function EducationEditor({
             </div>
             <label>
               Details
-              <input value={item.details} onChange={(event) => update(index, { details: event.target.value })} />
+              <textarea
+                rows={3}
+                value={item.details}
+                onChange={(event) => update(index, { details: event.target.value })}
+              />
             </label>
             <div className="item-actions">
               <button disabled={index === 0} onClick={() => onChange(move(items, index, index - 1))}>
@@ -837,6 +828,14 @@ function SkillsEditor({
             rows={4}
             value={data.softSkills.join(", ")}
             onChange={(event) => setData({ ...data, softSkills: parseCommaList(event.target.value) })}
+          />
+        </label>
+        <label>
+          Languages
+          <textarea
+            rows={3}
+            value={data.languages.join(", ")}
+            onChange={(event) => setData({ ...data, languages: parseCommaList(event.target.value) })}
           />
         </label>
       </div>
@@ -882,7 +881,13 @@ function ResumePreview({ data }: { data: ResumeData }) {
               <em>{item.degree}</em>
               <span>{[item.start, item.end].filter(Boolean).join(" - ")}</span>
             </div>
-            {item.details && <p>{item.details}</p>}
+            {item.details && (
+              <div className="education-details">
+                {splitLines(item.details).map((line, index) => (
+                  <p key={`${item.id}-detail-${index}`}>{line}</p>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </ResumeSection>
@@ -896,6 +901,11 @@ function ResumePreview({ data }: { data: ResumeData }) {
         {data.softSkills.length > 0 && (
           <p>
             <strong>Soft skills:</strong> {data.softSkills.join(", ")}
+          </p>
+        )}
+        {data.languages.length > 0 && (
+          <p>
+            <strong>Languages:</strong> {data.languages.join(", ")}
           </p>
         )}
       </ResumeSection>
@@ -946,6 +956,13 @@ function parseCommaList(value: string) {
     .filter(Boolean);
 }
 
+function splitLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function buildAiPrompt({
   version,
   targetRole,
@@ -969,6 +986,7 @@ function buildAiPrompt({
     summary: data.summary,
     hardSkills: data.hardSkills,
     softSkills: data.softSkills,
+    languages: data.languages,
     experience: data.experience.map(serializableResumeItem),
     projects: data.projects.map(serializableResumeItem),
     education: data.education,
@@ -1093,6 +1111,18 @@ function buildResumeCsv(version: ResumeVersion) {
       "",
       "",
       data.softSkills.join(", "),
+    ],
+    [
+      version.name,
+      version.targetRole,
+      version.applicationCompany ?? "",
+      "skills",
+      "Languages",
+      "",
+      "",
+      "",
+      "",
+      data.languages.join(", "),
     ],
     ...data.experience.map((item) => csvResumeItem(version, "experience", item)),
     ...data.projects.map((item) => csvResumeItem(version, "projects", item)),

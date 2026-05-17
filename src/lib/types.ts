@@ -35,6 +35,7 @@ export type ResumeData = {
   summary: string;
   hardSkills: string[];
   softSkills: string[];
+  languages: string[];
   skills?: string[];
   experience: ResumeItem[];
   projects: ResumeItem[];

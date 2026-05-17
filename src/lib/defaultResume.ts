@@ -29,6 +29,7 @@ export const starterResume: ResumeData = {
     "Product operations",
     "Cross-functional coordination",
   ],
+  languages: [],
   experience: [
     {
       id: "exp-1",
@@ -101,6 +102,7 @@ export function cloneStarterResume(targetRole: string): ResumeData {
       "Stakeholder communication",
       "Issue resolution",
     ];
+    data.languages = [];
   }
 
   if (role.includes("product") || role.includes("ops")) {
@@ -120,6 +122,7 @@ export function cloneStarterResume(targetRole: string): ResumeData {
       "Stakeholder management",
       "Prioritization",
     ];
+    data.languages = [];
   }
 
   if (role.includes("tech") || role.includes("ai")) {
@@ -138,6 +141,7 @@ export function cloneStarterResume(targetRole: string): ResumeData {
       "Rapid prototyping",
       "Problem framing",
     ];
+    data.languages = [];
   }
 
   return data;

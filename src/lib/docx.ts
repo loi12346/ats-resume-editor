@@ -21,6 +21,14 @@ function paragraph(text: string, style?: string) {
   return `<w:p>${styleXml}<w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
 }
 
+function paragraphs(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => paragraph(line));
+}
+
 function italicParagraph(text: string) {
   return `<w:p><w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
 }
@@ -78,11 +86,12 @@ function resumeXml(data: ResumeData) {
     ...normalized.education.flatMap((item) => [
       paragraph(educationHeader(item), "Heading2"),
       ...(educationDetail(item) ? [italicParagraph(educationDetail(item))] : []),
-      ...(item.details ? [paragraph(item.details)] : []),
+      ...(item.details ? paragraphs(item.details) : []),
     ]),
     paragraph("SKILLS", "Heading1"),
     ...(normalized.hardSkills.length ? [paragraph(`Hard skills: ${normalized.hardSkills.join(", ")}`)] : []),
     ...(normalized.softSkills.length ? [paragraph(`Soft skills: ${normalized.softSkills.join(", ")}`)] : []),
+    ...(normalized.languages.length ? [paragraph(`Languages: ${normalized.languages.join(", ")}`)] : []),
   ];
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
