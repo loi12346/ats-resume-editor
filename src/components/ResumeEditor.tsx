@@ -890,6 +890,7 @@ function ResumePreview({ data }: { data: ResumeData }) {
             fontStyle={line.font === "italic" ? "italic" : "normal"}
             fontWeight={line.font === "bold" ? 700 : 400}
             key={`${line.text}-${index}`}
+            textAnchor={line.align === "end" ? "end" : "start"}
             x={line.x}
             y={PDF_PAGE_HEIGHT - line.y}
           >

@@ -7,6 +7,7 @@ export type PdfLine = {
   size: number;
   x: number;
   y: number;
+  align?: "start" | "end";
 };
 
 export type PdfRule = {
@@ -33,7 +34,7 @@ export const PDF_PAGE_WIDTH = 595.28;
 export const PDF_PAGE_HEIGHT = 841.89;
 const pageWidth = PDF_PAGE_WIDTH;
 const pageHeight = PDF_PAGE_HEIGHT;
-const marginX = 42;
+const marginX = 32;
 const marginTop = 34;
 const marginBottom = 34;
 const usableWidth = pageWidth - marginX * 2;
@@ -41,8 +42,8 @@ const encoder = new TextEncoder();
 const layoutScale = {
   headerRuleGap: 1.25,
   sectionTopGap: 0.75,
-  sectionRuleGap: 1.08,
-  sectionContentGap: 1.08,
+  sectionRuleGap: 0.62,
+  sectionContentGap: 1.45,
   entryBottomGap: 0.25,
 };
 
@@ -154,9 +155,9 @@ function paragraph(state: PdfLayout, text: string, font: PdfLine["font"] = "regu
 }
 
 function bulletLine(state: PdfLayout, text: string) {
-  const dotX = marginX + state.fontSize * 1.1;
-  const textX = marginX + state.fontSize * 2.35;
-  const width = usableWidth - state.fontSize * 2.35;
+  const dotX = marginX + state.fontSize * 0.8;
+  const textX = marginX + state.fontSize * 1.85;
+  const width = pageWidth - marginX - textX;
   const lines = wrapText(text, width, state.fontSize, "regular");
   lines.forEach((line, index) => {
     if (index === 0) state.dots.push({ x: dotX, y: state.y + state.fontSize * 0.32, radius: state.fontSize * 0.14 });
@@ -173,7 +174,7 @@ function twoColumn(state: PdfLayout, left: string, right: string, font: PdfLine[
   leftLines.forEach((line, index) => {
     addRawLine(state, line, font, state.fontSize, marginX, state.y);
     if (index === 0 && right) {
-      addRawLine(state, right, "regular", state.fontSize, pageWidth - marginX - rightWidth, state.y);
+      addRawLine(state, right, "regular", state.fontSize, pageWidth - marginX, state.y, "end");
     }
     state.y -= lineHeight(state.fontSize);
   });
@@ -190,9 +191,17 @@ function addLine(state: PdfLayout, text: string, font: PdfLine["font"], size: nu
   state.y -= lineHeight(size);
 }
 
-function addRawLine(state: PdfLayout, text: string, font: PdfLine["font"], size: number, x: number, y: number) {
+function addRawLine(
+  state: PdfLayout,
+  text: string,
+  font: PdfLine["font"],
+  size: number,
+  x: number,
+  y: number,
+  align: PdfLine["align"] = "start",
+) {
   if (!text) return;
-  state.lines.push({ text, font, size, x, y });
+  state.lines.push({ text, font, size, x, y, align });
 }
 
 function rule(state: PdfLayout) {
@@ -223,7 +232,7 @@ function lineHeight(size: number) {
 }
 
 function textWidth(text: string, size: number, font: PdfLine["font"]) {
-  const factor = font === "bold" ? 0.51 : font === "italic" ? 0.49 : 0.48;
+  const factor = font === "bold" ? 0.48 : font === "italic" ? 0.46 : 0.44;
   return toPdfText(text).length * size * factor;
 }
 
@@ -247,7 +256,8 @@ function renderContent(state: PdfLayout) {
 
   state.lines.forEach((line) => {
     const font = line.font === "bold" ? "F2" : line.font === "italic" ? "F3" : "F1";
-    commands.push(`BT /${font} ${n(line.size)} Tf ${n(line.x)} ${n(line.y)} Td (${escapePdf(line.text)}) Tj ET`);
+    const x = line.align === "end" ? line.x - textWidth(line.text, line.size, line.font) : line.x;
+    commands.push(`BT /${font} ${n(line.size)} Tf ${n(x)} ${n(line.y)} Td (${escapePdf(line.text)}) Tj ET`);
   });
 
   return commands.join("\n");
