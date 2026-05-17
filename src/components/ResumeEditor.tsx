@@ -251,26 +251,25 @@ export function ResumeEditor() {
   async function importJson(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    const imported = JSON.parse(text) as {
-      profileName?: string;
-      targetRole?: string;
-      applicationCompany?: string;
-      name?: string;
-      data?: ResumeData;
-    };
-    if (!imported.data) {
+    try {
+      const text = await file.text();
+      const imported = parseImportedJson(JSON.parse(text));
+      if (!imported) {
+        setStatus("Import failed");
+        return;
+      }
+      createBlank(
+        imported.profileName || "Imported",
+        imported.targetRole || imported.profileName || "Imported",
+        imported.name ? `${imported.name} Import` : "Imported Version",
+        imported.data,
+        imported.applicationCompany || "",
+      );
+    } catch {
       setStatus("Import failed");
-      return;
+    } finally {
+      event.target.value = "";
     }
-    createBlank(
-      imported.profileName || "Imported",
-      imported.targetRole || imported.profileName || "Imported",
-      imported.name ? `${imported.name} Import` : "Imported Version",
-      imported.data,
-      imported.applicationCompany || "",
-    );
-    event.target.value = "";
   }
 
   function exportCsv() {
@@ -1160,6 +1159,121 @@ function csvResumeItem(version: ResumeVersion, section: string, item: ResumeItem
 
 function csvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
+}
+
+type ImportedResume = {
+  profileName?: string;
+  targetRole?: string;
+  applicationCompany?: string;
+  name?: string;
+  data: ResumeData;
+};
+
+function parseImportedJson(value: unknown): ImportedResume | null {
+  if (!isRecord(value)) return null;
+
+  if (isResumeData(value.data)) {
+    return {
+      profileName: asString(value.profileName),
+      targetRole: asString(value.targetRole),
+      applicationCompany: asString(value.applicationCompany),
+      name: asString(value.name),
+      data: normalizeResumeData(value.data),
+    };
+  }
+
+  if (isResumeData(value)) {
+    const metadata = value as ResumeData & Record<string, unknown>;
+    return {
+      profileName: asString(metadata.profileName),
+      targetRole: asString(metadata.targetRole),
+      applicationCompany: asString(metadata.applicationCompany),
+      name: asString(metadata.versionName) || asString(metadata.name),
+      data: normalizeResumeData(value),
+    };
+  }
+
+  const contact = isRecord(value.contact) ? value.contact : null;
+  const skills = isRecord(value.skills) ? value.skills : null;
+  if (!contact || typeof value.summary !== "string") return null;
+
+  return {
+    profileName: asString(value.profileName),
+    targetRole: asString(value.targetRole),
+    applicationCompany: asString(value.applicationCompany),
+    name: asString(value.versionName) || asString(value.name),
+    data: normalizeResumeData({
+      contact: {
+        fullName: asString(contact.fullName),
+        headline: asString(contact.headline),
+        location: asString(contact.location),
+        email: asString(contact.email),
+        phone: asString(contact.phone),
+        links: asString(contact.links),
+      },
+      summary: value.summary,
+      hardSkills: parseStringList(skills?.hardSkills),
+      softSkills: parseStringList(skills?.softSkills),
+      languages: parseStringList(skills?.languages),
+      experience: parseResumeItems(value.experience),
+      projects: parseResumeItems(value.projects),
+      education: parseEducationItems(value.education),
+    }),
+  };
+}
+
+function isResumeData(value: unknown): value is ResumeData {
+  return (
+    isRecord(value) &&
+    isRecord(value.contact) &&
+    typeof value.summary === "string" &&
+    Array.isArray(value.experience) &&
+    Array.isArray(value.projects) &&
+    Array.isArray(value.education)
+  );
+}
+
+function parseResumeItems(value: unknown): ResumeItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((item) => ({
+    id: asString(item.id) || makeId("item"),
+    organization: asString(item.organization),
+    role: asString(item.role),
+    location: asString(item.location),
+    start: asString(item.start),
+    end: asString(item.end),
+    keywords: asString(item.keywords),
+    impact: asString(item.impact),
+    originalDescription: asString(item.originalDescription),
+    bullets: parseStringList(item.bullets),
+  }));
+}
+
+function parseEducationItems(value: unknown): EducationItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((item) => ({
+    id: asString(item.id) || makeId("edu"),
+    school: asString(item.school),
+    degree: asString(item.degree),
+    location: asString(item.location),
+    start: asString(item.start),
+    end: asString(item.end),
+    details: Array.isArray(item.details) ? parseStringList(item.details).join("\n") : asString(item.details),
+  }));
+}
+
+function parseStringList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === "string") return parseCommaList(value);
+  return [];
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function move<T>(items: T[], from: number, to: number) {
