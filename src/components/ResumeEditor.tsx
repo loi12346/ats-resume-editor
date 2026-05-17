@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { cloneStarterResume } from "@/lib/defaultResume";
 import { buildDocx } from "@/lib/docx";
+import { buildPdf } from "@/lib/pdf";
 import { normalizeResumeData } from "@/lib/resumeData";
 import type { EducationItem, ResumeData, ResumeItem, ResumeListItem, ResumeVersion } from "@/lib/types";
 
@@ -223,8 +224,14 @@ export function ResumeEditor() {
   }
 
   async function printPdf() {
-    saveVersion();
-    window.print();
+    if (!data) return;
+    const saved = saveVersion();
+    const version = saved ?? current;
+    const pdf = buildPdf(normalizeResumeData(data));
+    downloadBlob(
+      new Blob([pdf], { type: "application/pdf" }),
+      `${safeName(version?.name ?? versionName)}.pdf`,
+    );
   }
 
   function exportJson() {
@@ -380,7 +387,7 @@ export function ResumeEditor() {
             <button onClick={deleteCurrent} disabled={!current || isWorking} title="Delete version">
               Delete
             </button>
-            <button onClick={printPdf} disabled={isWorking} title="Open print dialog for PDF">
+            <button onClick={printPdf} disabled={!canDownload || isWorking} title="Download one-page PDF">
               PDF
             </button>
             <button onClick={downloadDocx} disabled={!canDownload || isWorking} title="Download DOCX">
@@ -857,58 +864,69 @@ function ResumePreview({ data }: { data: ResumeData }) {
         <p>{data.summary}</p>
       </ResumeSection>
 
-      <ResumeSection title="Experience">
-        {data.experience.map((item) => (
-          <ResumeEntry item={item} key={item.id} />
-        ))}
-      </ResumeSection>
+      {data.experience.length > 0 && (
+        <ResumeSection title="Experience">
+          {data.experience.map((item) => (
+            <ResumeEntry item={item} key={item.id} />
+          ))}
+        </ResumeSection>
+      )}
 
-      <ResumeSection title="Projects">
-        {data.projects.map((item) => (
-          <ResumeEntry item={item} key={item.id} />
-        ))}
-      </ResumeSection>
+      {data.projects.length > 0 && (
+        <ResumeSection title="Projects">
+          {data.projects.map((item) => (
+            <ResumeEntry item={item} key={item.id} />
+          ))}
+        </ResumeSection>
+      )}
 
-      <ResumeSection title="Education">
-        {data.education.map((item) => (
-          <div className="resume-entry" key={item.id}>
-            <div className="entry-topline">
-              <strong>{item.school}</strong>
-              <span>{item.location}</span>
-            </div>
-            <div className="entry-detail-line">
-              <em>{item.degree}</em>
-              <span>{[item.start, item.end].filter(Boolean).join(" - ")}</span>
-            </div>
-            {item.details && (
-              <div className="education-details">
-                {splitLines(item.details).map((line, index) => (
-                  <p key={`${item.id}-detail-${index}`}>{line}</p>
-                ))}
+      {data.education.length > 0 && (
+        <ResumeSection title="Education">
+          {data.education.map((item) => (
+            <div className="resume-entry" key={item.id}>
+              <div className="entry-topline">
+                <strong>{item.school}</strong>
+                <span>{item.location}</span>
               </div>
-            )}
-          </div>
-        ))}
-      </ResumeSection>
+              <div className="entry-detail-line">
+                <em>{item.degree}</em>
+                <span>{[item.start, item.end].filter(Boolean).join(" - ")}</span>
+              </div>
+              {item.details && (
+                <div className="education-details">
+                  {splitLines(item.details).map((line, index) => (
+                    <p key={`${item.id}-detail-${index}`}>{line}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </ResumeSection>
+      )}
 
-      <ResumeSection title="Skills">
-        {data.hardSkills.length > 0 && (
-          <p>
-            <strong>Hard skills:</strong> {data.hardSkills.join(", ")}
-          </p>
-        )}
-        {data.softSkills.length > 0 && (
-          <p>
-            <strong>Soft skills:</strong> {data.softSkills.join(", ")}
-          </p>
-        )}
-        {data.languages.length > 0 && (
-          <p>
-            <strong>Languages:</strong> {data.languages.join(", ")}
-          </p>
-        )}
-      </ResumeSection>
+      {(data.hardSkills.length > 0 || data.softSkills.length > 0 || data.languages.length > 0) && (
+        <ResumeSection title="Skills & Languages">
+          {data.hardSkills.length > 0 && (
+            <SkillLine label="Hard skills" value={data.hardSkills.join(", ")} />
+          )}
+          {data.softSkills.length > 0 && (
+            <SkillLine label="Soft skills" value={data.softSkills.join(", ")} />
+          )}
+          {data.languages.length > 0 && (
+            <SkillLine label="Languages" value={data.languages.join(", ")} />
+          )}
+        </ResumeSection>
+      )}
     </article>
+  );
+}
+
+function SkillLine({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="skill-line">
+      <strong>{label}:</strong>
+      <span>{value}</span>
+    </p>
   );
 }
 

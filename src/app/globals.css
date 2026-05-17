@@ -495,7 +495,7 @@ label {
   color: var(--resume-ink);
   padding: 13mm 15mm;
   box-shadow: var(--shadow);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Calibri, "Segoe UI", Arial, Helvetica, sans-serif;
   font-size: 13px;
   line-height: 1.36;
 }
@@ -531,6 +531,16 @@ label {
   letter-spacing: 0;
   line-height: 1.4;
   text-transform: uppercase;
+  word-spacing: 0;
+}
+
+.skill-line {
+  display: block;
+}
+
+.skill-line strong,
+.skill-line span {
+  display: block;
 }
 
 .resume-entry {
