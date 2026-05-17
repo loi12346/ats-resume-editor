@@ -39,7 +39,7 @@ export function buildPdf(data: ResumeData) {
 }
 
 function fitFontSize(data: ResumeData) {
-  let low = 5.8;
+  let low = 4.8;
   let high = 10.2;
 
   for (let index = 0; index < 12; index += 1) {
@@ -72,7 +72,7 @@ function layoutResume(data: ResumeData, fontSize: number) {
   );
   state.y -= fontSize * 0.7;
   rule(state);
-  state.y -= fontSize * 0.55;
+  state.y -= fontSize * 1.05;
 
   section(state, "SUMMARY");
   paragraph(state, data.summary);
@@ -108,10 +108,11 @@ function layoutResume(data: ResumeData, fontSize: number) {
 }
 
 function section(state: DrawState, title: string) {
-  state.y -= state.fontSize * 0.65;
-  addLine(state, title, "bold", state.fontSize * 1.02, marginX);
+  state.y -= state.fontSize * 0.7;
+  addRawLine(state, title, "bold", state.fontSize * 1.02, marginX, state.y);
+  state.y -= state.fontSize * 0.45;
   rule(state);
-  state.y -= state.fontSize * 0.35;
+  state.y -= state.fontSize * 0.95;
 }
 
 function entry(state: DrawState, item: ResumeItem) {
@@ -175,7 +176,6 @@ function addRawLine(state: DrawState, text: string, font: PdfLine["font"], size:
 
 function rule(state: DrawState) {
   state.rules.push({ x1: marginX, x2: pageWidth - marginX, y: state.y });
-  state.y -= state.fontSize * 0.25;
 }
 
 function wrapText(text: string, maxWidth: number, size: number, font: PdfLine["font"]) {
@@ -198,7 +198,7 @@ function wrapText(text: string, maxWidth: number, size: number, font: PdfLine["f
 }
 
 function lineHeight(size: number) {
-  return size * 1.18;
+  return size * 1.34;
 }
 
 function textWidth(text: string, size: number, font: PdfLine["font"]) {
