@@ -4,7 +4,7 @@ import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { cloneStarterResume } from "@/lib/defaultResume";
 import { buildDocx } from "@/lib/docx";
-import { buildPdf, buildResumeLayout, PDF_PAGE_HEIGHT, PDF_PAGE_WIDTH } from "@/lib/pdf";
+import { buildPdf } from "@/lib/pdf";
 import { normalizeResumeData } from "@/lib/resumeData";
 import type { EducationItem, ResumeData, ResumeItem, ResumeListItem, ResumeVersion } from "@/lib/types";
 
@@ -850,52 +850,73 @@ function SkillsEditor({
 }
 
 function ResumePreview({ data }: { data: ResumeData }) {
-  const layout = buildResumeLayout(data);
-
   return (
     <article className="resume-page">
-      <svg
-        aria-label="Resume preview sheet"
-        className="resume-sheet"
-        role="img"
-        viewBox={`0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}`}
-      >
-        <rect fill="#ffffff" height={PDF_PAGE_HEIGHT} width={PDF_PAGE_WIDTH} x="0" y="0" />
-        {layout.rules.map((rule, index) => (
-          <line
-            key={`rule-${index}`}
-            stroke="#111111"
-            strokeWidth="0.5"
-            x1={rule.x1}
-            x2={rule.x2}
-            y1={PDF_PAGE_HEIGHT - rule.y}
-            y2={PDF_PAGE_HEIGHT - rule.y}
-          />
-        ))}
-        {layout.dots.map((dot, index) => (
-          <circle
-            cx={dot.x}
-            cy={PDF_PAGE_HEIGHT - dot.y}
-            fill="#111111"
-            key={`dot-${index}`}
-            r={dot.radius}
-          />
-        ))}
-        {layout.lines.map((line, index) => (
-          <text
-            fill="#111111"
-            fontFamily="Calibri, Segoe UI, Arial, sans-serif"
-            fontSize={line.size}
-            fontStyle={line.font === "italic" ? "italic" : "normal"}
-            fontWeight={line.font === "bold" ? 700 : 400}
-            key={`${line.text}-${index}`}
-            x={line.x}
-            y={PDF_PAGE_HEIGHT - line.y}
-          >
-            {line.text}
-          </text>
-        ))}
-      </svg>
+      <header className="resume-header">
+        <h1>{data.contact.fullName}</h1>
+        <p>{data.contact.headline}</p>
+        <p>
+          {[data.contact.location, data.contact.email, data.contact.phone, data.contact.links].filter(Boolean).join(" | ")}
+        </p>
+      </header>
+
+      <ResumeSection title="Summary">
+        <p>{data.summary}</p>
+      </ResumeSection>
+
+      {data.experience.length > 0 && (
+        <ResumeSection title="Experience">
+          {data.experience.map((item) => (
+            <ResumeEntry item={item} key={item.id} />
+          ))}
+        </ResumeSection>
+      )}
+
+      {data.projects.length > 0 && (
+        <ResumeSection title="Projects">
+          {data.projects.map((item) => (
+            <ResumeEntry item={item} key={item.id} />
+          ))}
+        </ResumeSection>
+      )}
+
+      {data.education.length > 0 && (
+        <ResumeSection title="Education">
+          {data.education.map((item) => (
+            <div className="resume-entry" key={item.id}>
+              <div className="entry-topline">
+                <strong>{item.school}</strong>
+                <span>{item.location}</span>
+              </div>
+              <div className="entry-detail-line">
+                <em>{item.degree}</em>
+                <span>{[item.start, item.end].filter(Boolean).join(" - ")}</span>
+              </div>
+              {item.details && (
+                <div className="education-details">
+                  {splitLines(item.details).map((line, index) => (
+                    <p key={`${item.id}-detail-${index}`}>{line}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </ResumeSection>
+      )}
+
+      {(data.hardSkills.length > 0 || data.softSkills.length > 0 || data.languages.length > 0) && (
+        <ResumeSection title="Skills & Languages">
+          {data.hardSkills.length > 0 && (
+            <SkillLine label="Hard skills" value={data.hardSkills.join(", ")} />
+          )}
+          {data.softSkills.length > 0 && (
+            <SkillLine label="Soft skills" value={data.softSkills.join(", ")} />
+          )}
+          {data.languages.length > 0 && (
+            <SkillLine label="Languages" value={data.languages.join(", ")} />
+          )}
+        </ResumeSection>
+      )}
     </article>
   );
 }

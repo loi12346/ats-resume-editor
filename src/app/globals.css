@@ -489,22 +489,15 @@ label {
 
 .resume-page {
   width: min(100%, 210mm);
-  aspect-ratio: 210 / 297;
+  min-height: 297mm;
   margin: 0 auto;
   background: var(--resume-bg);
   color: var(--resume-ink);
-  padding: 0;
+  padding: 13mm 15mm;
   box-shadow: var(--shadow);
   font-family: Calibri, "Segoe UI", Arial, Helvetica, sans-serif;
   font-size: 13px;
   line-height: 1.36;
-  overflow: hidden;
-}
-
-.resume-sheet {
-  display: block;
-  width: 100%;
-  height: auto;
 }
 
 .resume-header {
