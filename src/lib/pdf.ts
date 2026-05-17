@@ -1,7 +1,7 @@
 import { normalizeResumeData } from "./resumeData";
 import type { ResumeData, ResumeItem } from "./types";
 
-type PdfLine = {
+export type PdfLine = {
   text: string;
   font: "regular" | "bold" | "italic";
   size: number;
@@ -9,19 +9,19 @@ type PdfLine = {
   y: number;
 };
 
-type PdfRule = {
+export type PdfRule = {
   x1: number;
   x2: number;
   y: number;
 };
 
-type PdfDot = {
+export type PdfDot = {
   x: number;
   y: number;
   radius: number;
 };
 
-type DrawState = {
+export type PdfLayout = {
   lines: PdfLine[];
   rules: PdfRule[];
   dots: PdfDot[];
@@ -29,8 +29,10 @@ type DrawState = {
   fontSize: number;
 };
 
-const pageWidth = 595.28;
-const pageHeight = 841.89;
+export const PDF_PAGE_WIDTH = 595.28;
+export const PDF_PAGE_HEIGHT = 841.89;
+const pageWidth = PDF_PAGE_WIDTH;
+const pageHeight = PDF_PAGE_HEIGHT;
 const marginX = 42;
 const marginTop = 34;
 const marginBottom = 34;
@@ -38,11 +40,15 @@ const usableWidth = pageWidth - marginX * 2;
 const encoder = new TextEncoder();
 
 export function buildPdf(data: ResumeData) {
-  const normalized = normalizeResumeData(data);
-  const fontSize = fitFontSize(normalized);
-  const state = layoutResume(normalized, fontSize);
+  const state = buildResumeLayout(data);
   const content = renderContent(state);
   return buildPdfDocument(content);
+}
+
+export function buildResumeLayout(data: ResumeData) {
+  const normalized = normalizeResumeData(data);
+  const fontSize = fitFontSize(normalized);
+  return layoutResume(normalized, fontSize);
 }
 
 function fitFontSize(data: ResumeData) {
@@ -60,7 +66,7 @@ function fitFontSize(data: ResumeData) {
 }
 
 function layoutResume(data: ResumeData, fontSize: number) {
-  const state: DrawState = {
+  const state: PdfLayout = {
     lines: [],
     rules: [],
     dots: [],
@@ -115,7 +121,7 @@ function layoutResume(data: ResumeData, fontSize: number) {
   return state;
 }
 
-function section(state: DrawState, title: string) {
+function section(state: PdfLayout, title: string) {
   state.y -= state.fontSize * 0.7;
   addRawLine(state, title, "bold", state.fontSize * 1.02, marginX, state.y);
   state.y -= state.fontSize * 0.45;
@@ -123,7 +129,7 @@ function section(state: DrawState, title: string) {
   state.y -= state.fontSize * 0.55;
 }
 
-function entry(state: DrawState, item: ResumeItem) {
+function entry(state: PdfLayout, item: ResumeItem) {
   twoColumn(state, item.organization, item.location, "bold");
   twoColumn(state, item.role, [item.start, item.end].filter(Boolean).join(" - "), "italic");
   if (item.impact) paragraph(state, item.impact, "italic");
@@ -131,16 +137,16 @@ function entry(state: DrawState, item: ResumeItem) {
   state.y -= state.fontSize * 0.25;
 }
 
-function labeledParagraph(state: DrawState, label: string, text: string) {
+function labeledParagraph(state: PdfLayout, label: string, text: string) {
   addLine(state, label, "bold", state.fontSize, marginX);
   paragraph(state, text);
 }
 
-function paragraph(state: DrawState, text: string, font: PdfLine["font"] = "regular") {
+function paragraph(state: PdfLayout, text: string, font: PdfLine["font"] = "regular") {
   wrapText(text, usableWidth, state.fontSize, font).forEach((line) => addLine(state, line, font, state.fontSize, marginX));
 }
 
-function bulletLine(state: DrawState, text: string) {
+function bulletLine(state: PdfLayout, text: string) {
   const dotX = marginX + state.fontSize * 1.1;
   const textX = marginX + state.fontSize * 2.35;
   const width = usableWidth - state.fontSize * 2.35;
@@ -152,7 +158,7 @@ function bulletLine(state: DrawState, text: string) {
   });
 }
 
-function twoColumn(state: DrawState, left: string, right: string, font: PdfLine["font"]) {
+function twoColumn(state: PdfLayout, left: string, right: string, font: PdfLine["font"]) {
   const rightWidth = right ? textWidth(right, state.fontSize, "regular") : 0;
   const leftWidth = usableWidth - rightWidth - 14;
   const leftLines = wrapText(left, leftWidth, state.fontSize, font);
@@ -166,23 +172,23 @@ function twoColumn(state: DrawState, left: string, right: string, font: PdfLine[
   });
 }
 
-function drawCentered(state: DrawState, text: string, font: PdfLine["font"], size: number) {
+function drawCentered(state: PdfLayout, text: string, font: PdfLine["font"], size: number) {
   if (!text) return;
   const x = (pageWidth - textWidth(text, size, font)) / 2;
   addLine(state, text, font, size, x);
 }
 
-function addLine(state: DrawState, text: string, font: PdfLine["font"], size: number, x: number) {
+function addLine(state: PdfLayout, text: string, font: PdfLine["font"], size: number, x: number) {
   addRawLine(state, text, font, size, x, state.y);
   state.y -= lineHeight(size);
 }
 
-function addRawLine(state: DrawState, text: string, font: PdfLine["font"], size: number, x: number, y: number) {
+function addRawLine(state: PdfLayout, text: string, font: PdfLine["font"], size: number, x: number, y: number) {
   if (!text) return;
   state.lines.push({ text, font, size, x, y });
 }
 
-function rule(state: DrawState) {
+function rule(state: PdfLayout) {
   state.rules.push({ x1: marginX, x2: pageWidth - marginX, y: state.y });
 }
 
@@ -221,7 +227,7 @@ function splitLines(value: string) {
     .filter(Boolean);
 }
 
-function renderContent(state: DrawState) {
+function renderContent(state: PdfLayout) {
   const commands: string[] = ["0 0 0 rg", "0.5 w"];
 
   state.rules.forEach((item) => {
