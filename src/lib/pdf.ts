@@ -15,9 +15,16 @@ type PdfRule = {
   y: number;
 };
 
+type PdfDot = {
+  x: number;
+  y: number;
+  radius: number;
+};
+
 type DrawState = {
   lines: PdfLine[];
   rules: PdfRule[];
+  dots: PdfDot[];
   y: number;
   fontSize: number;
 };
@@ -56,6 +63,7 @@ function layoutResume(data: ResumeData, fontSize: number) {
   const state: DrawState = {
     lines: [],
     rules: [],
+    dots: [],
     y: pageHeight - marginTop,
     fontSize,
   };
@@ -112,7 +120,7 @@ function section(state: DrawState, title: string) {
   addRawLine(state, title, "bold", state.fontSize * 1.02, marginX, state.y);
   state.y -= state.fontSize * 0.45;
   rule(state);
-  state.y -= state.fontSize * 0.95;
+  state.y -= state.fontSize * 0.55;
 }
 
 function entry(state: DrawState, item: ResumeItem) {
@@ -133,12 +141,12 @@ function paragraph(state: DrawState, text: string, font: PdfLine["font"] = "regu
 }
 
 function bulletLine(state: DrawState, text: string) {
-  const bulletX = marginX + state.fontSize * 0.6;
-  const textX = marginX + state.fontSize * 1.9;
-  const width = usableWidth - state.fontSize * 1.9;
+  const dotX = marginX + state.fontSize * 1.1;
+  const textX = marginX + state.fontSize * 2.35;
+  const width = usableWidth - state.fontSize * 2.35;
   const lines = wrapText(text, width, state.fontSize, "regular");
   lines.forEach((line, index) => {
-    if (index === 0) addRawLine(state, "-", "regular", state.fontSize, bulletX, state.y);
+    if (index === 0) state.dots.push({ x: dotX, y: state.y + state.fontSize * 0.32, radius: state.fontSize * 0.14 });
     addRawLine(state, line, "regular", state.fontSize, textX, state.y);
     state.y -= lineHeight(state.fontSize);
   });
@@ -198,11 +206,11 @@ function wrapText(text: string, maxWidth: number, size: number, font: PdfLine["f
 }
 
 function lineHeight(size: number) {
-  return size * 1.34;
+  return size * 1.36;
 }
 
 function textWidth(text: string, size: number, font: PdfLine["font"]) {
-  const factor = font === "bold" ? 0.56 : 0.52;
+  const factor = font === "bold" ? 0.51 : font === "italic" ? 0.49 : 0.48;
   return toPdfText(text).length * size * factor;
 }
 
@@ -220,12 +228,29 @@ function renderContent(state: DrawState) {
     commands.push(`${n(item.x1)} ${n(item.y)} m ${n(item.x2)} ${n(item.y)} l S`);
   });
 
+  state.dots.forEach((dot) => {
+    commands.push(circle(dot.x, dot.y, dot.radius));
+  });
+
   state.lines.forEach((line) => {
     const font = line.font === "bold" ? "F2" : line.font === "italic" ? "F3" : "F1";
     commands.push(`BT /${font} ${n(line.size)} Tf ${n(line.x)} ${n(line.y)} Td (${escapePdf(line.text)}) Tj ET`);
   });
 
   return commands.join("\n");
+}
+
+function circle(x: number, y: number, radius: number) {
+  const control = radius * 0.5522847498;
+  const x0 = x - radius;
+  const x1 = x - control;
+  const x2 = x + control;
+  const x3 = x + radius;
+  const y0 = y - radius;
+  const y1 = y - control;
+  const y2 = y + control;
+  const y3 = y + radius;
+  return `${n(x)} ${n(y3)} m ${n(x2)} ${n(y3)} ${n(x3)} ${n(y2)} ${n(x3)} ${n(y)} c ${n(x3)} ${n(y1)} ${n(x2)} ${n(y0)} ${n(x)} ${n(y0)} c ${n(x1)} ${n(y0)} ${n(x0)} ${n(y1)} ${n(x0)} ${n(y)} c ${n(x0)} ${n(y2)} ${n(x1)} ${n(y3)} ${n(x)} ${n(y3)} c f`;
 }
 
 function buildPdfDocument(content: string) {
