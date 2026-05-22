@@ -301,17 +301,6 @@ export function ResumeEditor() {
     downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${safeName(version.name)}.csv`);
   }
 
-  function jumpToSection(label: string) {
-    const sectionId = label.toLowerCase();
-    setActiveTab("content");
-    window.setTimeout(() => {
-      document.querySelector(`[data-resume-section="${sectionId}"]`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 50);
-  }
-
   const promptVersions = storedVersions.map((version) =>
     current?.id === version.id && data
       ? {
@@ -392,24 +381,6 @@ export function ResumeEditor() {
               <RailButton active={activeTab === "aiPrompt"} icon="clipboard" label="Job Description" onClick={() => setActiveTab("aiPrompt")} />
               <RailButton active={activeTab === "aiPrompt"} icon="spark" label="AI Prompt Workflow" onClick={() => setActiveTab("aiPrompt")} />
               <RailButton active={activeTab === "notes"} icon="upload" label="Import / Export" onClick={() => setActiveTab("notes")} />
-            </RailGroup>
-
-            <RailGroup title="Resume Sections">
-              {[
-                ["Header", Boolean(data.contact.fullName || data.contact.headline)],
-                ["Summary", Boolean(data.summary.trim())],
-                ["Experience", data.experience.some(hasResumeItemContent)],
-                ["Projects", data.projects.some(hasResumeItemContent)],
-                ["Education", data.education.some(hasEducationContent)],
-                ["Skills", Boolean(data.hardSkills.length || data.softSkills.length)],
-                ["Languages", Boolean(data.languages.length)],
-              ].map(([label, complete]) => (
-                <button className="section-nav-row" key={String(label)} onClick={() => jumpToSection(String(label))}>
-                  <Icon name={sectionIcon(String(label))} />
-                  <span>{label}</span>
-                  <span className={complete ? "status-dot complete" : "status-dot"}>{complete ? <Icon name="check" /> : null}</span>
-                </button>
-              ))}
             </RailGroup>
 
             <RailGroup
@@ -1279,16 +1250,6 @@ function HealthRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function sectionIcon(label: string): IconName {
-  if (label === "Header") return "user";
-  if (label === "Experience") return "briefcase";
-  if (label === "Projects") return "folder";
-  if (label === "Education") return "education";
-  if (label === "Skills") return "code";
-  if (label === "Languages") return "cloud";
-  return "document";
-}
-
 function sectionKeyFromTitle(title: string) {
   const lower = title.toLowerCase();
   if (lower.includes("experience")) return "experience";
@@ -1368,22 +1329,6 @@ function hasResumeItemContent(item: ResumeItem) {
       item.originalDescription.trim() ||
       item.bullets.some((bullet) => bullet.trim()),
   );
-}
-
-function hasEducationContent(item: EducationItem) {
-  return Boolean(item.school.trim() || item.degree.trim() || item.location.trim() || item.details.trim());
-}
-
-function countCompletedSections(data: ResumeData) {
-  return [
-    Boolean(data.contact.fullName || data.contact.headline),
-    Boolean(data.summary.trim()),
-    data.experience.some(hasResumeItemContent),
-    data.projects.some(hasResumeItemContent),
-    data.education.some(hasEducationContent),
-    Boolean(data.hardSkills.length || data.softSkills.length),
-    Boolean(data.languages.length),
-  ].filter(Boolean).length;
 }
 
 function buildAiPrompt({
