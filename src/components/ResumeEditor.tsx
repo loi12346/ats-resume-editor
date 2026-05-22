@@ -66,6 +66,7 @@ export function ResumeEditor() {
   const [aiVersionId, setAiVersionId] = useState<number | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [isRailHidden, setIsRailHidden] = useState(false);
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const actionLockRef = useRef(false);
   const lastAddAtRef = useRef(0);
@@ -189,17 +190,29 @@ export function ResumeEditor() {
 
   function deleteCurrent() {
     if (!current || actionLockRef.current) return;
-    const confirmed = window.confirm(`Delete "${current.name}"?`);
+    deleteVersion(current.id, current.name);
+  }
+
+  function deleteVersion(id: number, name: string) {
+    if (actionLockRef.current) return;
+    const versions = readVersions();
+    if (versions.length <= 1) {
+      setStatus("Keep at least one version");
+      return;
+    }
+    const confirmed = window.confirm(`Delete "${name}"?`);
     if (!confirmed) return;
     actionLockRef.current = true;
     setIsWorking(true);
     try {
       setStatus("Deleting");
-      const nextVersions = readVersions().filter((version) => version.id !== current.id);
+      const nextVersions = versions.filter((version) => version.id !== id);
       writeVersions(nextVersions);
       setStoredVersions(nextVersions);
       setVersions(toListItems(nextVersions));
-      loadVersion(nextVersions[0].id, nextVersions);
+      if (current?.id === id) {
+        loadVersion(nextVersions[0].id, nextVersions);
+      }
       setStatus("Deleted");
     } catch {
       setStatus("Delete failed");
@@ -288,6 +301,17 @@ export function ResumeEditor() {
     downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${safeName(version.name)}.csv`);
   }
 
+  function jumpToSection(label: string) {
+    const sectionId = label.toLowerCase();
+    setActiveTab("content");
+    window.setTimeout(() => {
+      document.querySelector(`[data-resume-section="${sectionId}"]`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 50);
+  }
+
   const promptVersions = storedVersions.map((version) =>
     current?.id === version.id && data
       ? {
@@ -300,7 +324,6 @@ export function ResumeEditor() {
         }
       : version,
   );
-
   if (!data) {
     return (
       <main className="empty-shell">
@@ -312,139 +335,261 @@ export function ResumeEditor() {
     );
   }
 
+  const summaryWords = countWords(data.summary);
+  const experienceBulletCount = data.experience.reduce(
+    (total, item) => total + item.bullets.filter((bullet) => bullet.trim()).length,
+    0,
+  );
+  const projectCount = data.projects.filter((item) => hasResumeItemContent(item)).length;
+
   return (
     <main className={isRailHidden ? "app-shell rail-collapsed" : "app-shell"}>
-      <button
-        className={isRailHidden ? "sidebar-toggle collapsed no-print" : "sidebar-toggle no-print"}
-        onClick={() => setIsRailHidden(!isRailHidden)}
-        title={isRailHidden ? "Expand versions" : "Collapse versions"}
-        aria-label={isRailHidden ? "Expand versions" : "Collapse versions"}
-      >
-        {isRailHidden ? ">" : "<"}
-      </button>
+      <header className="app-topbar no-print">
+        <div className="product-title">
+          <span className="product-mark" aria-hidden="true">
+            <Icon name="document" />
+          </span>
+          <div>
+            <h1>ATS Resume Tailoring Workspace</h1>
+            <p>Local-first <span>·</span> Structured JSON <span>·</span> AI-assisted <span>·</span> Export-ready</p>
+          </div>
+        </div>
 
-      <aside className={isRailHidden ? "version-rail collapsed no-print" : "version-rail no-print"} aria-label="Resume versions">
-          <div className="brand-block">
-            <p className="eyebrow">Local Browser</p>
-            <h1>Resume Editor</h1>
-            <div className="brand-status">
-              <span>{status}</span>
+        <div className="command-bar">
+          <button onClick={() => createBlank("General", "General", "Sample Resume", cloneStarterResume("General"))} disabled={isWorking}>
+            <Icon name="folder" /> Load Sample
+          </button>
+          <button onClick={() => importRef.current?.click()} disabled={isWorking}>
+            <Icon name="upload" /> Import JSON
+          </button>
+          <button onClick={printPdf} disabled={!canDownload || isWorking}>
+            <Icon name="pdf" /> Export PDF
+          </button>
+          <button onClick={downloadDocx} disabled={!canDownload || isWorking}>
+            <Icon name="docx" /> Export DOCX
+          </button>
+          <button className="save-pill" onClick={saveVersion} disabled={isWorking}>
+            <Icon name="check" /> Saved locally <Icon name="chevronDown" />
+          </button>
+          <input ref={importRef} hidden type="file" accept="application/json,text/csv,.json,.csv" onChange={importJson} />
+        </div>
+      </header>
+
+      <div className="app-body">
+        <button
+          className={isRailHidden ? "sidebar-toggle collapsed no-print" : "sidebar-toggle no-print"}
+          onClick={() => setIsRailHidden(!isRailHidden)}
+          title={isRailHidden ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={isRailHidden ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <Icon name={isRailHidden ? "chevronRight" : "chevronLeft"} />
+        </button>
+
+        <aside className={isRailHidden ? "version-rail collapsed no-print" : "version-rail no-print"} aria-label="Resume workflow">
+          <div className="rail-scroll">
+            <RailGroup title="Workflow">
+              <RailButton active={activeTab === "content"} icon="document" label="Resume Versions" onClick={() => setActiveTab("content")} />
+              <RailButton active={activeTab === "aiPrompt"} icon="clipboard" label="Job Description" onClick={() => setActiveTab("aiPrompt")} />
+              <RailButton active={activeTab === "aiPrompt"} icon="spark" label="AI Prompt Workflow" onClick={() => setActiveTab("aiPrompt")} />
+              <RailButton active={activeTab === "notes"} icon="upload" label="Import / Export" onClick={() => setActiveTab("notes")} />
+            </RailGroup>
+
+            <RailGroup title="Resume Sections">
+              {[
+                ["Header", Boolean(data.contact.fullName || data.contact.headline)],
+                ["Summary", Boolean(data.summary.trim())],
+                ["Experience", data.experience.some(hasResumeItemContent)],
+                ["Projects", data.projects.some(hasResumeItemContent)],
+                ["Education", data.education.some(hasEducationContent)],
+                ["Skills", Boolean(data.hardSkills.length || data.softSkills.length)],
+                ["Languages", Boolean(data.languages.length)],
+              ].map(([label, complete]) => (
+                <button className="section-nav-row" key={String(label)} onClick={() => jumpToSection(String(label))}>
+                  <Icon name={sectionIcon(String(label))} />
+                  <span>{label}</span>
+                  <span className={complete ? "status-dot complete" : "status-dot"}>{complete ? <Icon name="check" /> : null}</span>
+                </button>
+              ))}
+            </RailGroup>
+
+            <RailGroup
+              title="Versions"
+              action={
+                <button className="rail-add-button" onClick={addVersion} disabled={isWorking}>
+                  <Icon name="plus" /> New Version
+                </button>
+              }
+            >
+              <div className="version-list">
+                {versions.map((item, index) => (
+                  <article
+                    className={current?.id === item.id ? "version-row active" : "version-row"}
+                    key={item.id}
+                  >
+                    <button className="version-main" disabled={isWorking} onClick={() => loadVersion(item.id)}>
+                      <span className={`version-color color-${index % 4}`} />
+                      <span className="version-file">
+                        <Icon name="document" />
+                      </span>
+                      <span className="version-copy">
+                        <strong>{item.name}</strong>
+                        <span>{item.targetRole || "Target role"}</span>
+                      </span>
+                      <span className={current?.id === item.id ? "version-state active" : "version-state"}>
+                        {current?.id === item.id ? "Editing" : "Saved"}
+                      </span>
+                    </button>
+                    <button
+                      className="version-delete"
+                      disabled={isWorking || versions.length <= 1}
+                      onClick={() => deleteVersion(item.id, item.name)}
+                      title={`Delete ${item.name}`}
+                      aria-label={`Delete ${item.name}`}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </RailGroup>
+
+            <div className="privacy-card">
+              <Icon name="cloud" />
+              <p>All data is stored locally in your browser.</p>
+              <span>No data leaves your device.</span>
             </div>
-          </div>
-
-          <div className="version-actions">
-              <button onClick={addVersion} disabled={isWorking}>
-                + Add Version
-              </button>
-          </div>
-
-          <div className="version-list">
-            {versions.map((item) => (
-              <button
-                className={current?.id === item.id ? "version-row active" : "version-row"}
-                key={item.id}
-                disabled={isWorking}
-                onClick={() => loadVersion(item.id)}
-              >
-                <strong>{item.name}</strong>
-                <span>{item.targetRole}</span>
-              </button>
-            ))}
           </div>
         </aside>
 
-      <section className="workspace no-print">
-        <header className="toolbar">
-          <div className="identity-fields">
-            <label>
-              Profile
-              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
-            </label>
-            <label>
-              Target role
-              <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} />
-            </label>
-            <label>
-              Application company
-              <input value={applicationCompany} onChange={(event) => setApplicationCompany(event.target.value)} />
-            </label>
-            <label>
-              Version
-              <input value={versionName} onChange={(event) => setVersionName(event.target.value)} />
-            </label>
+        <section className="workspace no-print">
+          <div className="editor-grid">
+            <section className="editor-pane">
+              <div className="content-shell">
+                <div className="content-header">
+                  <div>
+                    <h2>
+                      {activeTab === "aiPrompt"
+                        ? "AI Prompt Workflow"
+                        : activeTab === "notes"
+                          ? "Raw Notes & Import Review"
+                          : `Resume Content (${versionName || "Untitled Resume"})`}
+                    </h2>
+                    <p>{targetRole || "Target role"} {applicationCompany ? `· ${applicationCompany}` : ""}</p>
+                  </div>
+                  <span className="local-save-status">
+                    <Icon name="check" /> All changes saved locally
+                  </span>
+                </div>
+
+                <div className="identity-fields">
+                  <label>
+                    Profile
+                    <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+                  </label>
+                  <label>
+                    Target role
+                    <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} />
+                  </label>
+                  <label>
+                    Application company
+                    <input value={applicationCompany} onChange={(event) => setApplicationCompany(event.target.value)} />
+                  </label>
+                  <label>
+                    Version
+                    <input value={versionName} onChange={(event) => setVersionName(event.target.value)} />
+                  </label>
+                </div>
+
+                <div className="toolbar-actions">
+                  <button className="primary-action" onClick={saveVersion} disabled={isWorking}>
+                    <Icon name="check" /> Save
+                  </button>
+                  <button onClick={() => createBlank(profileName, targetRole, `${versionName} Copy`, data, applicationCompany)} disabled={isWorking}>
+                    <Icon name="copy" /> Copy
+                  </button>
+                  <button onClick={deleteCurrent} disabled={!current || isWorking}>
+                    <Icon name="trash" /> Delete
+                  </button>
+                  <button onClick={exportCsv} disabled={!canDownload || isWorking}>
+                    <Icon name="sheet" /> CSV
+                  </button>
+                  <button onClick={exportJson} disabled={isWorking}>
+                    <Icon name="code" /> JSON
+                  </button>
+                </div>
+
+                {activeTab === "content" ? (
+                  <ContentEditor data={data} setData={setData} summaryWords={summaryWords} experienceBulletCount={experienceBulletCount} projectCount={projectCount} />
+                ) : activeTab === "notes" ? (
+                  <RawNotesEditor data={data} setData={setData} />
+                ) : (
+                  <AiPromptPanel
+                    versions={promptVersions}
+                    selectedVersionId={aiVersionId ?? current?.id ?? versions[0]?.id ?? null}
+                    onSelectVersion={setAiVersionId}
+                    fallbackRole={targetRole}
+                    fallbackCompany={applicationCompany}
+                    onCopied={() => setStatus("Prompt copied")}
+                  />
+                )}
+
+                {activeTab === "content" && (
+                  <button className="add-section-button" onClick={() => setActiveTab("content")}>
+                    <Icon name="plus" /> Add Section
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <aside className="preview-column" aria-label="Resume preview and export status">
+              <section className="preview-pane">
+                <div className="preview-head">
+                  <h2>Live Resume Preview (A4)</h2>
+                  <button
+                    className="icon-button"
+                    onClick={() => setIsPreviewExpanded(true)}
+                    title="Expand preview"
+                    aria-label="Expand preview"
+                  >
+                    <Icon name="expand" />
+                  </button>
+                </div>
+                <ResumePreview data={data} />
+              </section>
+
+              <InfoCard title="Quick Export" icon="cloud">
+                <p className="quick-copy">Your resume is ready to export.</p>
+                <div className="quick-actions">
+                  <button onClick={printPdf} disabled={!canDownload || isWorking}>
+                    <Icon name="pdf" /> Export PDF
+                  </button>
+                  <button onClick={downloadDocx} disabled={!canDownload || isWorking}>
+                    <Icon name="docx" /> Export DOCX
+                  </button>
+                </div>
+              </InfoCard>
+            </aside>
           </div>
-          <div className="toolbar-actions">
-            <button className="primary-action" onClick={saveVersion} disabled={isWorking} title="Save current version">
-              Save
-            </button>
-            <button
-              onClick={() => createBlank(profileName, targetRole, `${versionName} Copy`, data, applicationCompany)}
-              disabled={isWorking}
-              title="Copy version"
-            >
-              Copy
-            </button>
-            <button onClick={deleteCurrent} disabled={!current || isWorking} title="Delete version">
-              Delete
-            </button>
-            <button onClick={printPdf} disabled={!canDownload || isWorking} title="Download one-page PDF">
-              PDF
-            </button>
-            <button onClick={downloadDocx} disabled={!canDownload || isWorking} title="Download DOCX">
-              DOCX
-            </button>
-            <button onClick={exportCsv} disabled={!canDownload || isWorking} title="Export sheet-ready CSV">
-              CSV
-            </button>
-            <button onClick={exportJson} disabled={isWorking} title="Export backup JSON">
-              JSON
-            </button>
-            <button onClick={() => importRef.current?.click()} disabled={isWorking} title="Import backup JSON">
-              Import
-            </button>
-            <input ref={importRef} hidden type="file" accept="application/json,text/csv,.json,.csv" onChange={importJson} />
-          </div>
-        </header>
-
-        <div className="editor-grid">
-          <section className="editor-pane">
-            <div className="tab-bar">
-              <button className={activeTab === "content" ? "active" : ""} onClick={() => setActiveTab("content")}>
-                Content
-              </button>
-              <button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>
-                Raw Notes
-              </button>
-              <button className={activeTab === "aiPrompt" ? "active" : ""} onClick={() => setActiveTab("aiPrompt")}>
-                AI Prompt
-              </button>
-            </div>
-
-            {activeTab === "content" ? (
-              <ContentEditor data={data} setData={setData} />
-            ) : activeTab === "notes" ? (
-              <RawNotesEditor data={data} setData={setData} />
-            ) : (
-              <AiPromptPanel
-                versions={promptVersions}
-                selectedVersionId={aiVersionId ?? current?.id ?? versions[0]?.id ?? null}
-                onSelectVersion={setAiVersionId}
-                fallbackRole={targetRole}
-                fallbackCompany={applicationCompany}
-                onCopied={() => setStatus("Prompt copied")}
-              />
-            )}
-          </section>
-
-          <section className="preview-pane" aria-label="Resume preview">
-            <ResumePreview data={data} />
-          </section>
-        </div>
-      </section>
+        </section>
+      </div>
 
       <section className="print-surface">
         <ResumePreview data={data} />
       </section>
+
+      {isPreviewExpanded && (
+        <section className="preview-modal no-print" role="dialog" aria-modal="true" aria-label="Expanded resume preview">
+          <div className="preview-modal-head">
+            <h2>Live Resume Preview (A4)</h2>
+            <button onClick={() => setIsPreviewExpanded(false)}>
+              Close
+            </button>
+          </div>
+          <div className="preview-modal-body">
+            <ResumePreview data={data} />
+          </div>
+        </section>
+      )}
     </main>
   );
 }
@@ -452,14 +597,26 @@ export function ResumeEditor() {
 function ContentEditor({
   data,
   setData,
+  summaryWords,
+  experienceBulletCount,
+  projectCount,
 }: {
   data: ResumeData;
   setData: (value: ResumeData) => void;
+  summaryWords: number;
+  experienceBulletCount: number;
+  projectCount: number;
 }) {
   return (
     <div className="form-stack">
-      <section className="form-section">
-        <h2>Header</h2>
+      <section className="form-section compact-section" data-resume-section="header">
+        <div className="section-head">
+          <div className="section-title">
+            <Icon name="user" />
+            <h2>Header</h2>
+          </div>
+          <span className="section-badge ready">Ready</span>
+        </div>
         <div className="field-grid">
           {(["fullName", "headline", "location", "email", "phone", "links"] as const).map((field) => (
             <label key={field}>
@@ -478,21 +635,29 @@ function ContentEditor({
         </div>
       </section>
 
-      <section className="form-section">
-        <h2>Summary</h2>
+      <section className="form-section compact-section" data-resume-section="summary">
+        <div className="section-head">
+          <div className="section-title">
+            <Icon name="education" />
+            <h2>Summary</h2>
+          </div>
+          <span className="section-badge ready">Ready</span>
+        </div>
         <textarea
           rows={5}
           value={data.summary}
           onChange={(event) => setData({ ...data, summary: event.target.value })}
         />
+        <p className="section-meter">{summaryWords} words</p>
       </section>
 
       <ResumeItemsEditor
         title="Experience"
         items={data.experience}
         onChange={(items) => setData({ ...data, experience: items })}
+        badge={`${experienceBulletCount} bullets`}
       />
-      <ResumeItemsEditor title="Projects" items={data.projects} onChange={(items) => setData({ ...data, projects: items })} />
+      <ResumeItemsEditor title="Projects" items={data.projects} onChange={(items) => setData({ ...data, projects: items })} badge={`${projectCount} items`} />
       <EducationEditor items={data.education} onChange={(items) => setData({ ...data, education: items })} />
       <SkillsEditor data={data} setData={setData} />
     </div>
@@ -581,6 +746,23 @@ function AiPromptPanel({
         </button>
       </div>
 
+      <div className="prompt-workflow-card">
+        <h3>
+          <Icon name="spark" />
+          AI Prompt Workflow
+        </h3>
+        <div className="prompt-steps">
+          {["Paste JD", "Review gaps", "Answer evidence questions", "Generate import-ready JSON", "Import final version"].map(
+            (step, index) => (
+              <span key={step}>
+                <strong>{index + 1}</strong>
+                {step}
+              </span>
+            ),
+          )}
+        </div>
+      </div>
+
       <div className="field-grid">
         <label>
           Resume version
@@ -643,21 +825,31 @@ function ResumeItemsEditor({
   items,
   onChange,
   notesOnly = false,
+  badge,
 }: {
   title: string;
   items: ResumeItem[];
   onChange: (items: ResumeItem[]) => void;
   notesOnly?: boolean;
+  badge?: string;
 }) {
   const update = (index: number, patch: Partial<ResumeItem>) => {
     onChange(items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
   };
 
   return (
-    <section className="form-section">
+    <section className="form-section" data-resume-section={sectionKeyFromTitle(title)}>
       <div className="section-head">
-        <h2>{title}</h2>
-        <button onClick={() => onChange([...items, blankExperience()])}>+ Add</button>
+        <div className="section-title">
+          <Icon name={title.toLowerCase().includes("project") ? "folder" : "briefcase"} />
+          <h2>{title}</h2>
+        </div>
+        <div className="section-actions">
+          {badge && <span className="section-badge">{badge}</span>}
+          <button onClick={() => onChange([...items, blankExperience()])}>
+            <Icon name="plus" /> Add
+          </button>
+        </div>
       </div>
 
       <div className="item-list">
@@ -722,13 +914,15 @@ function ResumeItemsEditor({
                     />
                   </label>
                 ))}
-                <button onClick={() => update(index, { bullets: [...item.bullets, ""] })}>+ Bullet</button>
+                <button onClick={() => update(index, { bullets: [...item.bullets, ""] })}>
+                  <Icon name="plus" /> Bullet
+                </button>
               </div>
             )}
 
             <div className="item-actions">
               <button disabled={index === 0} onClick={() => onChange(move(items, index, index - 1))}>
-                Up
+                <Icon name="arrows" /> Up
               </button>
               <button disabled={index === items.length - 1} onClick={() => onChange(move(items, index, index + 1))}>
                 Down
@@ -754,10 +948,18 @@ function EducationEditor({
   };
 
   return (
-    <section className="form-section">
+    <section className="form-section" data-resume-section="education">
       <div className="section-head">
-        <h2>Education</h2>
-        <button onClick={() => onChange([...items, blankEducation()])}>+ Add</button>
+        <div className="section-title">
+          <Icon name="education" />
+          <h2>Education</h2>
+        </div>
+        <div className="section-actions">
+          <span className="section-badge ready">Ready</span>
+          <button onClick={() => onChange([...items, blankEducation()])}>
+            <Icon name="plus" /> Add
+          </button>
+        </div>
       </div>
 
       <div className="item-list">
@@ -795,7 +997,7 @@ function EducationEditor({
             </label>
             <div className="item-actions">
               <button disabled={index === 0} onClick={() => onChange(move(items, index, index - 1))}>
-                Up
+                <Icon name="arrows" /> Up
               </button>
               <button disabled={index === items.length - 1} onClick={() => onChange(move(items, index, index + 1))}>
                 Down
@@ -817,8 +1019,14 @@ function SkillsEditor({
   setData: (value: ResumeData) => void;
 }) {
   return (
-    <section className="form-section">
-      <h2>Skills</h2>
+    <section className="form-section" data-resume-section="skills">
+      <div className="section-head">
+        <div className="section-title">
+          <Icon name="code" />
+          <h2>Skills</h2>
+        </div>
+        <span className="section-badge ready">Ready</span>
+      </div>
       <div className="skill-grid">
         <label>
           Hard skills
@@ -836,7 +1044,7 @@ function SkillsEditor({
             onChange={(event) => setData({ ...data, softSkills: parseCommaList(event.target.value) })}
           />
         </label>
-        <label>
+        <label data-resume-section="languages">
           Languages
           <textarea
             rows={3}
@@ -902,6 +1110,192 @@ function ResumePreview({ data }: { data: ResumeData }) {
   );
 }
 
+type IconName =
+  | "arrows"
+  | "briefcase"
+  | "check"
+  | "chevronDown"
+  | "chevronLeft"
+  | "chevronRight"
+  | "clipboard"
+  | "cloud"
+  | "code"
+  | "copy"
+  | "document"
+  | "docx"
+  | "education"
+  | "expand"
+  | "folder"
+  | "more"
+  | "pdf"
+  | "plus"
+  | "sheet"
+  | "shield"
+  | "spark"
+  | "trash"
+  | "upload"
+  | "user";
+
+function Icon({ name }: { name: IconName }) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 1.9,
+  };
+  return (
+    <svg aria-hidden="true" className="icon" viewBox="0 0 24 24">
+      {name === "document" && (
+        <>
+          <path {...common} d="M7 3h7l4 4v14H7z" />
+          <path {...common} d="M14 3v5h5M9 12h6M9 16h6" />
+        </>
+      )}
+      {name === "folder" && <path {...common} d="M3 7h7l2 2h9v10H3z" />}
+      {name === "upload" && (
+        <>
+          <path {...common} d="M12 16V4M8 8l4-4 4 4M5 16v4h14v-4" />
+        </>
+      )}
+      {name === "pdf" && (
+        <>
+          <path {...common} d="M7 3h7l4 4v14H7zM14 3v5h5" />
+          <path {...common} d="M9 15h6" />
+        </>
+      )}
+      {name === "docx" && (
+        <>
+          <path {...common} d="M6 4h12v16H6z" />
+          <path {...common} d="M9 8h6M9 12h6M9 16h4" />
+        </>
+      )}
+      {name === "check" && <path {...common} d="M5 12l4 4L19 6" />}
+      {name === "chevronDown" && <path {...common} d="M7 10l5 5 5-5" />}
+      {name === "chevronLeft" && <path {...common} d="M15 6l-6 6 6 6" />}
+      {name === "chevronRight" && <path {...common} d="M9 6l6 6-6 6" />}
+      {name === "clipboard" && (
+        <>
+          <path {...common} d="M8 5h8v3H8z" />
+          <path {...common} d="M6 7h12v14H6z" />
+        </>
+      )}
+      {name === "spark" && <path {...common} d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />}
+      {name === "cloud" && <path {...common} d="M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11.3 2A3 3 0 0 0 7 18z" />}
+      {name === "code" && <path {...common} d="M9 18l-5-6 5-6M15 6l5 6-5 6" />}
+      {name === "copy" && (
+        <>
+          <rect {...common} x="8" y="8" width="10" height="10" rx="2" />
+          <path {...common} d="M6 14H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+        </>
+      )}
+      {name === "education" && <path {...common} d="M3 9l9-5 9 5-9 5zM7 12v5c3 2 7 2 10 0v-5" />}
+      {name === "expand" && <path {...common} d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" />}
+      {name === "more" && (
+        <>
+          <circle cx="12" cy="5" r="1.4" fill="currentColor" />
+          <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+          <circle cx="12" cy="19" r="1.4" fill="currentColor" />
+        </>
+      )}
+      {name === "plus" && <path {...common} d="M12 5v14M5 12h14" />}
+      {name === "sheet" && (
+        <>
+          <rect {...common} x="4" y="4" width="16" height="16" rx="2" />
+          <path {...common} d="M4 10h16M10 4v16" />
+        </>
+      )}
+      {name === "shield" && <path {...common} d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM8 12l3 3 5-6" />}
+      {name === "trash" && <path {...common} d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" />}
+      {name === "user" && (
+        <>
+          <circle {...common} cx="12" cy="8" r="4" />
+          <path {...common} d="M4 21c1.5-4 14.5-4 16 0" />
+        </>
+      )}
+      {name === "briefcase" && (
+        <>
+          <path {...common} d="M4 8h16v11H4zM9 8V5h6v3" />
+          <path {...common} d="M4 13h16" />
+        </>
+      )}
+      {name === "arrows" && <path {...common} d="M8 7h11M15 3l4 4-4 4M16 17H5M9 13l-4 4 4 4" />}
+    </svg>
+  );
+}
+
+function RailGroup({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <section className="rail-group">
+      <div className="rail-group-head">
+        <h2>{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function RailButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: IconName;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className={active ? "rail-button active" : "rail-button"} onClick={onClick}>
+      <Icon name={icon} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function InfoCard({ title, icon, children }: { title: string; icon: IconName; children: React.ReactNode }) {
+  return (
+    <section className="side-card">
+      <h2>
+        <Icon name={icon} />
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function HealthRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="health-row">
+      <span>
+        <Icon name="check" />
+        {label}
+      </span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function sectionIcon(label: string): IconName {
+  if (label === "Header") return "user";
+  if (label === "Experience") return "briefcase";
+  if (label === "Projects") return "folder";
+  if (label === "Education") return "education";
+  if (label === "Skills") return "code";
+  if (label === "Languages") return "cloud";
+  return "document";
+}
+
+function sectionKeyFromTitle(title: string) {
+  const lower = title.toLowerCase();
+  if (lower.includes("experience")) return "experience";
+  if (lower.includes("project")) return "projects";
+  return lower.replace(/[^a-z0-9]+/g, "-");
+}
+
 function SkillLine({ label, value }: { label: string; value: string }) {
   return (
     <p className="skill-line">
@@ -959,6 +1353,37 @@ function splitLines(value: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function countWords(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function hasResumeItemContent(item: ResumeItem) {
+  return Boolean(
+    item.organization.trim() ||
+      item.role.trim() ||
+      item.location.trim() ||
+      item.impact.trim() ||
+      item.originalDescription.trim() ||
+      item.bullets.some((bullet) => bullet.trim()),
+  );
+}
+
+function hasEducationContent(item: EducationItem) {
+  return Boolean(item.school.trim() || item.degree.trim() || item.location.trim() || item.details.trim());
+}
+
+function countCompletedSections(data: ResumeData) {
+  return [
+    Boolean(data.contact.fullName || data.contact.headline),
+    Boolean(data.summary.trim()),
+    data.experience.some(hasResumeItemContent),
+    data.projects.some(hasResumeItemContent),
+    data.education.some(hasEducationContent),
+    Boolean(data.hardSkills.length || data.softSkills.length),
+    Boolean(data.languages.length),
+  ].filter(Boolean).length;
 }
 
 function buildAiPrompt({
