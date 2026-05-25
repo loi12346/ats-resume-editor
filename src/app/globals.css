@@ -20,6 +20,30 @@
   --resume-ink: #111111;
 }
 
+@font-face {
+  font-family: "CalibriPDF";
+  src: url("/fonts/calibri-regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CalibriPDF";
+  src: url("/fonts/calibri-bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CalibriPDF";
+  src: url("/fonts/calibri-italic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -802,7 +826,7 @@ label {
   background: var(--resume-bg);
   color: var(--resume-ink);
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
-  font-family: Calibri, "Segoe UI", Arial, Helvetica, sans-serif;
+  font-family: "CalibriPDF", Calibri, "Segoe UI", Arial, Helvetica, sans-serif;
 }
 
 .resume-sheet {

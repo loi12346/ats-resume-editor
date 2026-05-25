@@ -240,11 +240,16 @@ export function ResumeEditor() {
     if (!data) return;
     const saved = saveVersion();
     const version = saved ?? current;
-    const pdf = buildPdf(normalizeResumeData(data));
-    downloadBlob(
-      new Blob([pdf], { type: "application/pdf" }),
-      `${safeName(version?.name ?? versionName)}.pdf`,
-    );
+    try {
+      await document.fonts.ready;
+      const pdf = await buildPdf(normalizeResumeData(data));
+      downloadBlob(
+        new Blob([pdf], { type: "application/pdf" }),
+        `${safeName(version?.name ?? versionName)}.pdf`,
+      );
+    } catch {
+      setStatus("PDF export failed");
+    }
   }
 
   function exportJson() {
@@ -1064,7 +1069,7 @@ function ResumePreview({ data }: { data: ResumeData }) {
           <text
             dominantBaseline="alphabetic"
             fill="#111111"
-            fontFamily="Calibri, Segoe UI, Arial, sans-serif"
+            fontFamily="CalibriPDF, Calibri, Segoe UI, Arial, sans-serif"
             fontSize={line.size}
             fontStyle={line.font === "italic" ? "italic" : "normal"}
             fontWeight={line.font === "bold" ? 700 : 400}
