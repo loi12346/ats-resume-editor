@@ -5,6 +5,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Local Resume Editor",
   description: "Local ATS resume editor with browser versioning and PDF/DOCX downloads.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { cloneStarterResume } from "@/lib/defaultResume";
 import { buildDocx } from "@/lib/docx";
@@ -10,6 +10,14 @@ import type { EducationItem, ResumeData, ResumeItem, ResumeListItem, ResumeVersi
 
 const STORAGE_KEY = "ats-resume-editor-versions";
 const NEXT_ID_KEY = "ats-resume-editor-next-id";
+const RESUME_SECTION_LINKS = [
+  { id: "section-header", label: "Header" },
+  { id: "section-summary", label: "Summary" },
+  { id: "section-experience", label: "Experience" },
+  { id: "section-projects", label: "Projects" },
+  { id: "section-education", label: "Education" },
+  { id: "section-skills", label: "Skills" },
+];
 
 const blankExperience = (): ResumeItem => ({
   id: makeId("item"),
@@ -52,6 +60,31 @@ function safeName(value: string) {
   return value.replace(/[^a-z0-9-_]+/gi, "_").replace(/^_+|_+$/g, "") || "resume";
 }
 
+function versionSignature(version: {
+  profileName: string;
+  targetRole: string;
+  applicationCompany?: string;
+  name: string;
+  data: ResumeData;
+}) {
+  return JSON.stringify({
+    profileName: version.profileName,
+    targetRole: version.targetRole,
+    applicationCompany: version.applicationCompany ?? "",
+    name: version.name,
+    data: normalizeResumeData(version.data),
+  });
+}
+
+function contactInputProps(field: keyof ResumeData["contact"]) {
+  if (field === "email") return { type: "email", autoComplete: "email", name: "contact-email" };
+  if (field === "phone") return { type: "tel", inputMode: "tel" as const, autoComplete: "tel", name: "contact-phone" };
+  if (field === "links") return { type: "url", autoComplete: "url", name: "contact-links" };
+  if (field === "fullName") return { type: "text", autoComplete: "name", name: "contact-full-name" };
+  if (field === "location") return { type: "text", autoComplete: "address-level2", name: "contact-location" };
+  return { type: "text", autoComplete: "off", name: "contact-headline" };
+}
+
 export function ResumeEditor() {
   const [storedVersions, setStoredVersions] = useState<ResumeVersion[]>([]);
   const [versions, setVersions] = useState<ResumeListItem[]>([]);
@@ -68,14 +101,61 @@ export function ResumeEditor() {
   const [isRailHidden, setIsRailHidden] = useState(false);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const previewCloseRef = useRef<HTMLButtonElement>(null);
   const actionLockRef = useRef(false);
   const lastAddAtRef = useRef(0);
 
   const canDownload = Boolean(data);
+  const savedSignature = useMemo(() => (current ? versionSignature(current) : ""), [current]);
+  const draftSignature = useMemo(
+    () =>
+      data
+        ? versionSignature({
+            profileName,
+            targetRole,
+            applicationCompany,
+            name: versionName,
+            data,
+          })
+        : "",
+    [applicationCompany, data, profileName, targetRole, versionName],
+  );
+  const hasUnsavedChanges = Boolean(data && (!current || draftSignature !== savedSignature));
+  const statusLabel = isWorking
+    ? `${status}...`
+    : hasUnsavedChanges
+      ? "Unsaved changes"
+      : status === "Ready" || status === "Saved"
+        ? "Saved locally"
+        : status;
 
   useEffect(() => {
     void loadVersions();
   }, []);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!isPreviewExpanded) return undefined;
+
+    previewCloseRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsPreviewExpanded(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPreviewExpanded]);
 
   async function loadVersions(selectId?: number) {
     const storedVersions = ensureLocalVersions();
@@ -350,11 +430,8 @@ export function ResumeEditor() {
         </div>
 
         <div className="command-bar">
-          <button onClick={() => createBlank("General", "General", "Sample Resume", cloneStarterResume("General"))} disabled={isWorking}>
-            <Icon name="folder" /> Load Sample
-          </button>
-          <button onClick={() => importRef.current?.click()} disabled={isWorking}>
-            <Icon name="upload" /> Import JSON
+          <button className={hasUnsavedChanges ? "save-pill needs-save" : "save-pill"} onClick={saveVersion} disabled={isWorking}>
+            <Icon name="check" /> {hasUnsavedChanges ? "Save Changes" : "Saved Locally"}
           </button>
           <button onClick={printPdf} disabled={!canDownload || isWorking}>
             <Icon name="pdf" /> Export PDF
@@ -362,30 +439,30 @@ export function ResumeEditor() {
           <button onClick={downloadDocx} disabled={!canDownload || isWorking}>
             <Icon name="docx" /> Export DOCX
           </button>
-          <button className="save-pill" onClick={saveVersion} disabled={isWorking}>
-            <Icon name="check" /> Saved locally <Icon name="chevronDown" />
+          <button onClick={() => importRef.current?.click()} disabled={isWorking}>
+            <Icon name="upload" /> Import JSON
           </button>
-          <input ref={importRef} hidden type="file" accept="application/json,text/csv,.json,.csv" onChange={importJson} />
+          <button onClick={() => createBlank("General", "General", "Sample Resume", cloneStarterResume("General"))} disabled={isWorking}>
+            <Icon name="folder" /> Load Sample
+          </button>
+          <input ref={importRef} hidden type="file" name="resume-import" accept="application/json,text/csv,.json,.csv" onChange={importJson} />
         </div>
       </header>
 
       <div className="app-body">
-        <button
-          className={isRailHidden ? "sidebar-toggle collapsed no-print" : "sidebar-toggle no-print"}
-          onClick={() => setIsRailHidden(!isRailHidden)}
-          title={isRailHidden ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={isRailHidden ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          <Icon name={isRailHidden ? "chevronRight" : "chevronLeft"} />
-        </button>
-
         <aside className={isRailHidden ? "version-rail collapsed no-print" : "version-rail no-print"} aria-label="Resume workflow">
           <div className="rail-scroll">
+            <div className="rail-toolbar">
+              <span>Sidebar</span>
+              <button onClick={() => setIsRailHidden(true)} title="Collapse sidebar" aria-label="Collapse sidebar">
+                <Icon name="chevronLeft" /> Collapse
+              </button>
+            </div>
+
             <RailGroup title="Workflow">
-              <RailButton active={activeTab === "content"} icon="document" label="Resume Versions" onClick={() => setActiveTab("content")} />
-              <RailButton active={activeTab === "aiPrompt"} icon="clipboard" label="Job Description" onClick={() => setActiveTab("aiPrompt")} />
-              <RailButton active={activeTab === "aiPrompt"} icon="spark" label="AI Prompt Workflow" onClick={() => setActiveTab("aiPrompt")} />
-              <RailButton active={activeTab === "notes"} icon="upload" label="Import / Export" onClick={() => setActiveTab("notes")} />
+              <RailButton active={activeTab === "content"} icon="document" label="Resume Content" onClick={() => setActiveTab("content")} />
+              <RailButton active={activeTab === "aiPrompt"} icon="spark" label="AI Prompt & JD" onClick={() => setActiveTab("aiPrompt")} />
+              <RailButton active={activeTab === "notes"} icon="clipboard" label="Raw Notes" onClick={() => setActiveTab("notes")} />
             </RailGroup>
 
             <RailGroup
@@ -438,6 +515,14 @@ export function ResumeEditor() {
         </aside>
 
         <section className="workspace no-print">
+          {isRailHidden && (
+            <div className="sidebar-restore-bar">
+              <button onClick={() => setIsRailHidden(false)} title="Expand sidebar" aria-label="Expand sidebar">
+                <Icon name="chevronRight" /> Show sidebar
+              </button>
+            </div>
+          )}
+
           <div className="editor-grid">
             <section className="editor-pane">
               <div className="content-shell">
@@ -452,34 +537,31 @@ export function ResumeEditor() {
                     </h2>
                     <p>{targetRole || "Target role"} {applicationCompany ? `· ${applicationCompany}` : ""}</p>
                   </div>
-                  <span className="local-save-status">
-                    <Icon name="check" /> All changes saved locally
+                  <span className={hasUnsavedChanges ? "local-save-status unsaved" : "local-save-status"} role="status" aria-live="polite">
+                    <Icon name="check" /> {statusLabel}
                   </span>
                 </div>
 
                 <div className="identity-fields">
                   <label>
                     Profile
-                    <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+                    <input name="profile-name" autoComplete="off" value={profileName} onChange={(event) => setProfileName(event.target.value)} />
                   </label>
                   <label>
                     Target role
-                    <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} />
+                    <input name="target-role" autoComplete="organization-title" value={targetRole} onChange={(event) => setTargetRole(event.target.value)} />
                   </label>
                   <label>
                     Application company
-                    <input value={applicationCompany} onChange={(event) => setApplicationCompany(event.target.value)} />
+                    <input name="application-company" autoComplete="organization" value={applicationCompany} onChange={(event) => setApplicationCompany(event.target.value)} />
                   </label>
                   <label>
                     Version
-                    <input value={versionName} onChange={(event) => setVersionName(event.target.value)} />
+                    <input name="version-name" autoComplete="off" value={versionName} onChange={(event) => setVersionName(event.target.value)} />
                   </label>
                 </div>
 
                 <div className="toolbar-actions">
-                  <button className="primary-action" onClick={saveVersion} disabled={isWorking}>
-                    <Icon name="check" /> Save
-                  </button>
                   <button onClick={() => createBlank(profileName, targetRole, `${versionName} Copy`, data, applicationCompany)} disabled={isWorking}>
                     <Icon name="copy" /> Copy
                   </button>
@@ -494,6 +576,16 @@ export function ResumeEditor() {
                   </button>
                 </div>
 
+                {activeTab === "content" && (
+                  <nav className="section-jump" aria-label="Resume sections">
+                    {RESUME_SECTION_LINKS.map((section) => (
+                      <a href={`#${section.id}`} key={section.id}>
+                        {section.label}
+                      </a>
+                    ))}
+                  </nav>
+                )}
+
                 {activeTab === "content" ? (
                   <ContentEditor data={data} setData={setData} summaryWords={summaryWords} experienceBulletCount={experienceBulletCount} projectCount={projectCount} />
                 ) : activeTab === "notes" ? (
@@ -507,12 +599,6 @@ export function ResumeEditor() {
                     fallbackCompany={applicationCompany}
                     onCopied={() => setStatus("Prompt copied")}
                   />
-                )}
-
-                {activeTab === "content" && (
-                  <button className="add-section-button" onClick={() => setActiveTab("content")}>
-                    <Icon name="plus" /> Add Section
-                  </button>
                 )}
               </div>
             </section>
@@ -533,16 +619,10 @@ export function ResumeEditor() {
                 <ResumePreview data={data} />
               </section>
 
-              <InfoCard title="Quick Export" icon="cloud">
-                <p className="quick-copy">Your resume is ready to export.</p>
-                <div className="quick-actions">
-                  <button onClick={printPdf} disabled={!canDownload || isWorking}>
-                    <Icon name="pdf" /> Export PDF
-                  </button>
-                  <button onClick={downloadDocx} disabled={!canDownload || isWorking}>
-                    <Icon name="docx" /> Export DOCX
-                  </button>
-                </div>
+              <InfoCard title="Document Status" icon="shield">
+                <HealthRow label="Save state" value={hasUnsavedChanges ? "Needs save" : "Saved"} />
+                <HealthRow label="PDF export" value="Ready" />
+                <HealthRow label="DOCX export" value="Ready" />
               </InfoCard>
             </aside>
           </div>
@@ -554,10 +634,10 @@ export function ResumeEditor() {
       </section>
 
       {isPreviewExpanded && (
-        <section className="preview-modal no-print" role="dialog" aria-modal="true" aria-label="Expanded resume preview">
+        <section className="preview-modal no-print" role="dialog" aria-modal="true" aria-label="Expanded resume preview" tabIndex={-1}>
           <div className="preview-modal-head">
             <h2>Live Resume Preview (A4)</h2>
-            <button onClick={() => setIsPreviewExpanded(false)}>
+            <button ref={previewCloseRef} onClick={() => setIsPreviewExpanded(false)}>
               Close
             </button>
           </div>
@@ -585,7 +665,7 @@ function ContentEditor({
 }) {
   return (
     <div className="form-stack">
-      <section className="form-section compact-section" data-resume-section="header">
+      <section className="form-section compact-section" id="section-header" data-resume-section="header">
         <div className="section-head">
           <div className="section-title">
             <Icon name="user" />
@@ -598,6 +678,7 @@ function ContentEditor({
             <label key={field}>
               {labelize(field)}
               <input
+                {...contactInputProps(field)}
                 value={data.contact[field]}
                 onChange={(event) =>
                   setData({
@@ -611,7 +692,7 @@ function ContentEditor({
         </div>
       </section>
 
-      <section className="form-section compact-section" data-resume-section="summary">
+      <section className="form-section compact-section" id="section-summary" data-resume-section="summary">
         <div className="section-head">
           <div className="section-title">
             <Icon name="education" />
@@ -620,6 +701,7 @@ function ContentEditor({
           <span className="section-badge ready">Ready</span>
         </div>
         <textarea
+          name="resume-summary"
           rows={5}
           value={data.summary}
           onChange={(event) => setData({ ...data, summary: event.target.value })}
@@ -743,6 +825,7 @@ function AiPromptPanel({
         <label>
           Resume version
           <select
+            name="prompt-resume-version"
             value={selectedVersion?.id ?? ""}
             onChange={(event) => onSelectVersion(Number(event.target.value))}
           >
@@ -755,17 +838,18 @@ function AiPromptPanel({
         </label>
         <label>
           Target role
-          <input value={promptRole} onChange={(event) => setPromptRole(event.target.value)} />
+          <input name="prompt-target-role" autoComplete="organization-title" value={promptRole} onChange={(event) => setPromptRole(event.target.value)} />
         </label>
         <label>
           Application company
-          <input value={promptCompany} onChange={(event) => setPromptCompany(event.target.value)} />
+          <input name="prompt-company" autoComplete="organization" value={promptCompany} onChange={(event) => setPromptCompany(event.target.value)} />
         </label>
       </div>
 
       <label>
         Job description
         <textarea
+          name="job-description"
           rows={8}
           value={jobDescription}
           onChange={(event) => setJobDescription(event.target.value)}
@@ -776,6 +860,7 @@ function AiPromptPanel({
       <label>
         Historical performance review
         <textarea
+          name="performance-review"
           rows={7}
           value={performanceReview}
           onChange={(event) => setPerformanceReview(event.target.value)}
@@ -814,7 +899,7 @@ function ResumeItemsEditor({
   };
 
   return (
-    <section className="form-section" data-resume-section={sectionKeyFromTitle(title)}>
+    <section className="form-section" id={`section-${sectionKeyFromTitle(title)}`} data-resume-section={sectionKeyFromTitle(title)}>
       <div className="section-head">
         <div className="section-title">
           <Icon name={title.toLowerCase().includes("project") ? "folder" : "briefcase"} />
@@ -829,39 +914,51 @@ function ResumeItemsEditor({
       </div>
 
       <div className="item-list">
-        {items.map((item, index) => (
-          <article className="edit-item" key={item.id}>
+        {items.map((item, index) => {
+          const bulletCount = item.bullets.filter((bullet) => bullet.trim()).length;
+          const primaryLabel = item.organization || item.role || `${title} ${index + 1}`;
+          const secondaryLabel = [item.role, item.location].filter(Boolean).join(" · ") || "Add role, location, impact, and bullets";
+
+          return (
+            <details className="edit-item" key={item.id} open>
+              <summary className="edit-item-summary">
+                <span>
+                  <strong>{primaryLabel}</strong>
+                  <span>{secondaryLabel}</span>
+                </span>
+                <span className="item-summary-meta">{notesOnly ? "Notes" : `${bulletCount} bullets`}</span>
+              </summary>
             {!notesOnly && (
               <>
                 <div className="field-grid item-title-grid">
                   <label>
                     Company / Organization
-                    <input value={item.organization} onChange={(event) => update(index, { organization: event.target.value })} />
+                    <input name={`${sectionKeyFromTitle(title)}-${index}-organization`} autoComplete="organization" value={item.organization} onChange={(event) => update(index, { organization: event.target.value })} />
                   </label>
                   <label>
                     Location
-                    <input value={item.location} onChange={(event) => update(index, { location: event.target.value })} />
+                    <input name={`${sectionKeyFromTitle(title)}-${index}-location`} autoComplete="address-level2" value={item.location} onChange={(event) => update(index, { location: event.target.value })} />
                   </label>
                   <label>
                     Role title
-                    <input value={item.role} onChange={(event) => update(index, { role: event.target.value })} />
+                    <input name={`${sectionKeyFromTitle(title)}-${index}-role`} autoComplete="organization-title" value={item.role} onChange={(event) => update(index, { role: event.target.value })} />
                   </label>
                   <label>
                     Start
-                    <input value={item.start} onChange={(event) => update(index, { start: event.target.value })} />
+                    <input name={`${sectionKeyFromTitle(title)}-${index}-start`} autoComplete="off" value={item.start} onChange={(event) => update(index, { start: event.target.value })} />
                   </label>
                   <label>
                     End
-                    <input value={item.end} onChange={(event) => update(index, { end: event.target.value })} />
+                    <input name={`${sectionKeyFromTitle(title)}-${index}-end`} autoComplete="off" value={item.end} onChange={(event) => update(index, { end: event.target.value })} />
                   </label>
                   <label>
                     Keywords
-                    <input value={item.keywords} onChange={(event) => update(index, { keywords: event.target.value })} />
+                    <input name={`${sectionKeyFromTitle(title)}-${index}-keywords`} autoComplete="off" value={item.keywords} onChange={(event) => update(index, { keywords: event.target.value })} />
                   </label>
                 </div>
                 <label>
                   Impact
-                  <input value={item.impact} onChange={(event) => update(index, { impact: event.target.value })} />
+                  <input name={`${sectionKeyFromTitle(title)}-${index}-impact`} autoComplete="off" value={item.impact} onChange={(event) => update(index, { impact: event.target.value })} />
                 </label>
               </>
             )}
@@ -869,6 +966,7 @@ function ResumeItemsEditor({
             <label>
               Raw description
               <textarea
+                name={`${sectionKeyFromTitle(title)}-${index}-raw-description`}
                 rows={notesOnly ? 6 : 3}
                 value={item.originalDescription}
                 onChange={(event) => update(index, { originalDescription: event.target.value })}
@@ -881,6 +979,8 @@ function ResumeItemsEditor({
                   <label key={`${item.id}-${bulletIndex}`}>
                     Bullet {bulletIndex + 1}
                     <input
+                      name={`${sectionKeyFromTitle(title)}-${index}-bullet-${bulletIndex + 1}`}
+                      autoComplete="off"
                       value={bullet}
                       onChange={(event) => {
                         const bullets = [...item.bullets];
@@ -905,8 +1005,9 @@ function ResumeItemsEditor({
               </button>
               <button onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
             </div>
-          </article>
-        ))}
+            </details>
+          );
+        })}
       </div>
     </section>
   );
@@ -924,7 +1025,7 @@ function EducationEditor({
   };
 
   return (
-    <section className="form-section" data-resume-section="education">
+    <section className="form-section" id="section-education" data-resume-section="education">
       <div className="section-head">
         <div className="section-title">
           <Icon name="education" />
@@ -940,32 +1041,40 @@ function EducationEditor({
 
       <div className="item-list">
         {items.map((item, index) => (
-          <article className="edit-item" key={item.id}>
+          <details className="edit-item" key={item.id} open>
+            <summary className="edit-item-summary">
+              <span>
+                <strong>{item.school || `Education ${index + 1}`}</strong>
+                <span>{[item.degree, item.location].filter(Boolean).join(" · ") || "Add school, degree, location, and details"}</span>
+              </span>
+              <span className="item-summary-meta">{item.end || item.start || "Dates"}</span>
+            </summary>
             <div className="field-grid item-title-grid">
               <label>
                 School
-                <input value={item.school} onChange={(event) => update(index, { school: event.target.value })} />
+                <input name={`education-${index}-school`} autoComplete="organization" value={item.school} onChange={(event) => update(index, { school: event.target.value })} />
               </label>
               <label>
                 Location
-                <input value={item.location} onChange={(event) => update(index, { location: event.target.value })} />
+                <input name={`education-${index}-location`} autoComplete="address-level2" value={item.location} onChange={(event) => update(index, { location: event.target.value })} />
               </label>
               <label>
                 Degree
-                <input value={item.degree} onChange={(event) => update(index, { degree: event.target.value })} />
+                <input name={`education-${index}-degree`} autoComplete="off" value={item.degree} onChange={(event) => update(index, { degree: event.target.value })} />
               </label>
               <label>
                 Start
-                <input value={item.start} onChange={(event) => update(index, { start: event.target.value })} />
+                <input name={`education-${index}-start`} autoComplete="off" value={item.start} onChange={(event) => update(index, { start: event.target.value })} />
               </label>
               <label>
                 End
-                <input value={item.end} onChange={(event) => update(index, { end: event.target.value })} />
+                <input name={`education-${index}-end`} autoComplete="off" value={item.end} onChange={(event) => update(index, { end: event.target.value })} />
               </label>
             </div>
             <label>
               Details
               <textarea
+                name={`education-${index}-details`}
                 rows={3}
                 value={item.details}
                 onChange={(event) => update(index, { details: event.target.value })}
@@ -980,7 +1089,7 @@ function EducationEditor({
               </button>
               <button onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
             </div>
-          </article>
+          </details>
         ))}
       </div>
     </section>
@@ -995,7 +1104,7 @@ function SkillsEditor({
   setData: (value: ResumeData) => void;
 }) {
   return (
-    <section className="form-section" data-resume-section="skills">
+    <section className="form-section" id="section-skills" data-resume-section="skills">
       <div className="section-head">
         <div className="section-title">
           <Icon name="code" />
@@ -1007,6 +1116,7 @@ function SkillsEditor({
         <label>
           Hard skills
           <textarea
+            name="hard-skills"
             rows={4}
             value={data.hardSkills.join(", ")}
             onChange={(event) => setData({ ...data, hardSkills: parseCommaList(event.target.value) })}
@@ -1015,6 +1125,7 @@ function SkillsEditor({
         <label>
           Soft skills
           <textarea
+            name="soft-skills"
             rows={4}
             value={data.softSkills.join(", ")}
             onChange={(event) => setData({ ...data, softSkills: parseCommaList(event.target.value) })}
@@ -1023,6 +1134,7 @@ function SkillsEditor({
         <label data-resume-section="languages">
           Languages
           <textarea
+            name="languages"
             rows={3}
             value={data.languages.join(", ")}
             onChange={(event) => setData({ ...data, languages: parseCommaList(event.target.value) })}
