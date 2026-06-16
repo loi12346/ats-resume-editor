@@ -100,6 +100,9 @@ export function ResumeEditor() {
   const [isWorking, setIsWorking] = useState(false);
   const [isRailHidden, setIsRailHidden] = useState(false);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
+  const [isImportPanelOpen, setIsImportPanelOpen] = useState(false);
+  const [importMode, setImportMode] = useState<"file" | "raw">("file");
+  const [rawImportText, setRawImportText] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
   const previewCloseRef = useRef<HTMLButtonElement>(null);
   const actionLockRef = useRef(false);
@@ -363,18 +366,37 @@ export function ResumeEditor() {
         setStatus("Import failed");
         return;
       }
-      createBlank(
-        imported.profileName || "Imported",
-        imported.targetRole || imported.profileName || "Imported",
-        imported.name ? `${imported.name} Import` : "Imported Version",
-        imported.data,
-        imported.applicationCompany || "",
-      );
+      importResume(imported);
     } catch {
       setStatus("Import failed");
     } finally {
       event.target.value = "";
     }
+  }
+
+  function importRawJson() {
+    try {
+      const imported = parseImportedJson(JSON.parse(rawImportText));
+      if (!imported) {
+        setStatus("Import failed");
+        return;
+      }
+      importResume(imported);
+      setRawImportText("");
+    } catch {
+      setStatus("Import failed");
+    }
+  }
+
+  function importResume(imported: ImportedResume) {
+    createBlank(
+      imported.profileName || "Imported",
+      imported.targetRole || imported.profileName || "Imported",
+      imported.name ? `${imported.name} Import` : "Imported Version",
+      imported.data,
+      imported.applicationCompany || "",
+    );
+    setIsImportPanelOpen(false);
   }
 
   function exportCsv() {
@@ -439,9 +461,66 @@ export function ResumeEditor() {
           <button onClick={downloadDocx} disabled={!canDownload || isWorking}>
             <Icon name="docx" /> Export DOCX
           </button>
-          <button onClick={() => importRef.current?.click()} disabled={isWorking}>
-            <Icon name="upload" /> Import JSON
-          </button>
+          <div className="import-menu">
+            <button
+              aria-expanded={isImportPanelOpen}
+              aria-haspopup="dialog"
+              onClick={() => setIsImportPanelOpen((open) => !open)}
+              disabled={isWorking}
+            >
+              <Icon name="upload" /> Import <Icon name="chevronDown" />
+            </button>
+            {isImportPanelOpen && (
+              <div className="import-panel" role="dialog" aria-label="Import resume">
+                <div className="import-mode-tabs" role="tablist" aria-label="Import options">
+                  <button
+                    className={importMode === "file" ? "active" : ""}
+                    role="tab"
+                    aria-selected={importMode === "file"}
+                    onClick={() => setImportMode("file")}
+                  >
+                    Import file
+                  </button>
+                  <button
+                    className={importMode === "raw" ? "active" : ""}
+                    role="tab"
+                    aria-selected={importMode === "raw"}
+                    onClick={() => setImportMode("raw")}
+                  >
+                    Import raw JSON
+                  </button>
+                </div>
+
+                {importMode === "file" ? (
+                  <div className="import-panel-body">
+                    <button className="import-primary-action" onClick={() => importRef.current?.click()} disabled={isWorking}>
+                      <Icon name="upload" /> Import file
+                    </button>
+                    <p>Supports JSON backups and compatible CSV exports.</p>
+                  </div>
+                ) : (
+                  <div className="import-panel-body">
+                    <label>
+                      Raw JSON
+                      <textarea
+                        name="resume-import-raw-json"
+                        value={rawImportText}
+                        onChange={(event) => setRawImportText(event.target.value)}
+                        placeholder="Paste import-ready JSON here"
+                        rows={9}
+                      />
+                    </label>
+                    <div className="import-actions">
+                      <button onClick={importRawJson} disabled={isWorking || rawImportText.trim().length === 0}>
+                        <Icon name="code" /> Import raw JSON
+                      </button>
+                      <button onClick={() => setIsImportPanelOpen(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <button onClick={() => createBlank("General", "General", "Sample Resume", cloneStarterResume("General"))} disabled={isWorking}>
             <Icon name="folder" /> Load Sample
           </button>

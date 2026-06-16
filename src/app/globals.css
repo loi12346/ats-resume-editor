@@ -272,6 +272,78 @@ label {
   min-width: 112px;
 }
 
+.import-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.import-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  width: min(380px, calc(100vw - 32px));
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+
+.import-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.import-mode-tabs button {
+  min-width: 0;
+  min-height: 32px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+
+.import-mode-tabs button.active {
+  border-color: var(--line);
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+}
+
+.import-panel-body {
+  display: grid;
+  gap: 10px;
+}
+
+.import-panel-body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.import-panel-body textarea {
+  min-height: 180px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.import-primary-action {
+  width: 100%;
+}
+
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .save-pill {
   min-width: 140px;
   border-color: #c6eadb;
